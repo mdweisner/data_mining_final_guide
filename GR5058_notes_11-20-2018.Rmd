@@ -1,0 +1,234 @@
+---
+title: "GR5058 Week 11"
+author: "Ben Goodrich"
+date: "November 21, 2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+You may need to install the following packages:
+```{r, eval = FALSE}
+install.packages(c("gam", "earth"))
+```
+
+# Linearity
+
+Why is the assumption that $\boldsymbol{\eta} = \mathbf{X} \boldsymbol{\beta}$
+made so often?
+
+# Data
+
+The data can be accessed (and sorted) with :
+```{r}
+data(Wage, package = "ISLR")
+Wage <- Wage[order(Wage$age),]
+```
+
+# Polynomial Regression
+
+Here is the new model
+$$y = \alpha + \beta_1 \times x + \beta_2 \times x^2 + ... \beta_K \times x^K + \epsilon$$
+You can estimate the parameters by least squares, even though it is nonlinear in $x$.
+It is easy to overfit in the training data and predict poorly in the testing data.
+```{r}
+linear <- lm(wage ~ age, data = Wage)
+quadratic <- lm(wage ~ poly(age, degree = 2), data = Wage)
+cubic <- lm(wage ~ poly(age, degree = 3), data = Wage)
+quartic <- lm(wage ~ poly(age, degree = 4), data = Wage)
+binary <- glm(wage > 250 ~ poly(age, degree = 4), data = Wage, family = binomial)
+```
+This last one is dumb in addition to overfitting. If you want to predict whether
+someone makes more than $250,000 in wages, model wages in the training data, 
+predict in the testing data, and the classify the predictions. Do not throw
+away information when modeling the training data.
+
+```{r}
+p_linear <- predict(linear, data = Wage)
+p_quadratic <- predict(quadratic, data = Wage)
+p_cubic <- predict(cubic, data = Wage)
+p_quartic <- predict(quartic, data = Wage)
+p_binary <- predict(binary, data = Wage)
+```
+
+```{r}
+with(Wage, plot(age, wage, pch = 20))
+with(Wage, lines(age, p_linear, col = 2))
+with(Wage, lines(age, p_quadratic, col = 3))
+with(Wage, lines(age, p_cubic, col = 4))
+with(Wage, lines(age, p_quartic, col = 5))
+```
+
+# Step Functions
+
+Step functions discretize a continuout variable in order to estimate a step function
+on the coefficients.
+```{r}
+Wage$age_cut <- cut(Wage$age, breaks = 5)
+summary(lm(wage ~ age_cut, data = Wage))
+summary(glm(wage > 250 ~ age_cut, data = Wage, family = binomial))
+```
+It is better to specify informative break points rather than accepting what R gives you.
+
+# Other Flexible Estimation Methods
+
+Daniela Witten, who is one of the authors of the ISLR book, gave a talk at the 
+useR2016 conference describing other methods like these
+
+https://channel9.msdn.com/Events/useR-international-R-User-conference/useR2016/Flexible-and-Interpretable-Regression-Using-Convex-Penalties
+
+Her goal is to fit the (testing) data well while retaining the interpretability of
+the model by using step functions. Does this make sense?
+
+# Basis Functions
+
+Here is the new model
+$$y = \alpha + \beta_1 b_1(x) + \beta_2 b_2(x) + ... \beta_K b_K(x) + \epsilon$$
+
+The basis functions, $b_k(x)$, are considred "known", making this like a standard linear model with functional predictors $b_k(x)$.
+
+# Regression Splines
+
+Combination of cutting at knots and fitting a polynomial within each region such that the function is differentiable at the knots.
+
+Truncated power basis function
+$h\left(x,\xi\right) = \left(x - \xi\right)^3$ if $x > \xi$ and $x = 0$ otherwise.
+Can also impose the constraint that the function is linear at the boundaries, which tends
+to reduce the variance in the predictions. Can "set" (and then cross-validate) the degrees of freedom to the spline function and let the computer choose the locations of the knots.
+
+```{r, message = FALSE}
+library(caret)
+set.seed(12345)
+in_train <- createDataPartition(Wage$wage, p = 3 / 4, list = FALSE)
+training <- Wage[ in_train, ]
+testing  <- Wage[-in_train, ]
+```
+
+```{r}
+library(splines)
+fit <- lm(wage ~ bs(age, knots = c(25, 40, 60)), data = training)
+yhat <- predict(fit, newdata = testing)
+plot(testing$age, yhat, type = "l", las = 1)
+defaultSummary(data.frame(obs = testing$wage, pred = yhat))
+```
+
+# Smoothing Splines
+
+Consider the loss function $$\sum_{i=1}^N{\left(y_i - g(x_i)\right)^2} + \lambda \int{g^{\prime \prime}(t)^2dt}$$ where $\lambda$ is tuned. If $g$ is highly "wiggly", its second derivative will be large in magnitude. $\lambda$ govers the bias-variance tradeoff and implies an effective degrees of freedom.
+
+```{r}
+fit <- with(training, smooth.spline(x = age, y = wage, df = 16))
+plot(fit$x, fit$y, type = "l", las = 1)
+```
+
+# Multivariate Adaptive Regression Splines (MARS)
+
+MARS transforms each predictor `x` into `h(x,a)`
+```{r}
+h <- function(x, a = 0) {     # arguments
+  return(ifelse(x > a, x, 0)) # return statement only referring to arguments
+}
+```
+and `h(-x,a)`, which is known as a hinge function or a hockey stick function
+```{r}
+curve(h(x), from = -2, to = 5, ylim = c(-2,5), las = 1, ylab = "Hinge Functions")
+curve(h(-x), col = "red", add = TRUE)
+```
+
+The MARS fitting procedure estimates the hinge point (`a`) and the coefficients.
+It can also drop some of them (by putting `a` outside the range of the predictor) 
+and estimate polynomial hinge functions.
+
+According to Kuhn and Johnson (2013, p. 149)
+
+> There are several advantages to using MARS. First, the model automatically conducts feature selection; the model equation is independent of predictor variables that are not involved with any of the final model features. This point cannot be underrated. Given a large number of predictors seen in many problem domains, MARS potentially thins the predictor set using the same algorithm that builds the model. In this way, the feature selection routine has a direct connection to functional performance. The second advantage
+is interpretability. Each hinge feature is responsible for modeling a specific region in the predictor space using a (piecewise) linear model. When the MARS model is additive, the contribution of each predictor can be isolated without the need to consider the others. This can be used to provide clear interpretations of how each predictor relates to the outcome. For nonadditive models, the interpretive power of the model is not reduced. Consider a second-degree feature involving two predictors. Since each hinge function is
+split into two regions, three of the four possible regions will be zero and offer
+no contribution to the model. Because of this, the effect of the two factors
+can be further isolated, making the interpretation as simple as the additive
+model. Finally, the MARS model requires very little pre-processing of the
+data; data transformations and the filtering of predictors are not needed.
+
+```{r, message = FALSE}
+ctrl <- trainControl("cv", number = 10)
+marsGrid <- expand.grid(.degree = 1:3, .nprune = 1:10)
+MARS <- train(wage ~ year + age + education, data = testing,
+              method = "earth",
+              trControl = ctrl, tuneGrid = marsGrid)
+coef(MARS$finalModel)
+varImp(MARS)
+defaultSummary(data.frame(obs = testing$wage,
+                          pred = predict(MARS, newdata = testing)[,1]))
+```
+
+Note that these (and other) "variable importance measures" are based on 
+how much worse the predictive performance is if a predictor were to be
+dropped. In other words, it means "important" in a very particular and
+atypical sense. Also, in this case they are scaled so the more important
+variable is automatically 100 and everything else is relative to that,
+so it is a measure of relative importance rather than absolute importance.
+
+# Kernels
+
+In the abstract, a kernel is a function that quantifies how dissimilar two
+observations that includes but is not limited to the Euclidean distance 
+that we have talked about before.
+
+In general, we write $K\left(\mathbf{x}_i,\mathbf{x}_j\right)$.
+
+* Polynomial kernel $K\left(\mathbf{x}_i,\mathbf{x}_j\right) = 1 + 
+\left(\sum_{p=1}^P{x_{ip} \times x_{jp}}\right)^d$
+* Radial kernel $K\left(\mathbf{x}_i,\mathbf{x}_j\right) =
+e^{-\gamma \sum_{p=1}^P{\left(x_{ip} - x_{jp}\right)^2}}$
+* etc. possibly including unknown parameters like $\gamma$ that have to be
+  chosen in the training data with cross-validation.
+
+# Use in Regression
+
+* `lowess` uses `x` and `y` and polynomial kernels
+* `loess` uses formulas and polynomial kernels (so we will focus on that)
+* `gam` also uses formulas but can involve multiple predictors (there is a 
+  `gam` function in both the **gam** package and the **mgcv** package; we 
+  will focus on the former in this class)
+
+```{r, message = FALSE}
+library(gam)
+GAM_grid <- data.frame(df = 1:10)
+GAM <- train(wage ~ year + age, data = training, method = "gamSpline", 
+             trControl = ctrl, tuneGrid = GAM_grid,
+             preProcess = c("center", "scale"))
+```
+
+```{r}
+plot(GAM$finalModel)
+```
+
+```{r}
+defaultSummary(data.frame(obs = testing$wage, 
+                          pred = predict(GAM, newdata = testing)))
+```
+
+Unfortunately, the `train` interface to this model is a bit limited,
+so you may want to do it directly if you need to include factors
+such as `education`.
+```{r}
+plot(gam(wage ~ s(year, age, df = 6) + education, data = training))
+```
+
+But in that case, you would have to do any cross-validation yourself.
+
+Here is another example, where you could tune the `span` argument 
+(defaults to 0.75) and / or the `degree` argument (defaults to 2)
+because if you tried to do this with `train` and `method = gamLoess`
+it errors:
+```{r}
+lpr <- loess(wage ~ age, data = training)
+plot(lpr$x, fitted(lpr), type = "l", las = 1, ylim = c(0, 250),
+     xlab = "Age", ylab = "Predicted Wage")
+points(lpr$x, lpr$y, pch = 20, col = 2)
+lines(lpr$x, fitted(lpr))
+defaultSummary(data.frame(obs = testing$wage,
+                          pred = predict(lpr, newdata = testing)))
+```

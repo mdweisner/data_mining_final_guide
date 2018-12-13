@@ -1,0 +1,368 @@
+---
+title: "GR5058 Week 12"
+author: "Ben Goodrich"
+date: "November 27, 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+You need to install the following packages:
+
+```{r, eval = FALSE}
+install.packages(c("BART"))
+```
+
+
+# Degrees of Difficulty
+
+Data mining essentially involves three tasks
+
+1. Choosing an objective function
+2. Typing the computer syntax to obtain parameters that are optimal in the
+  training data with respect to that objective function
+3. Predicting the outcome in the testing data using the optimal parameters
+  obtained from the training data
+  
+Step 1 is very difficult to do well and a lot of "pragmatic" data miners
+essentially punt on that question by using whatever objective function
+makes step 2 easy. Step 2 is pretty easy if there are not many options
+that the user has to specify and if those options have default values.
+Step 3 is not too difficult if you do not have too many different models
+to compare the predictive performance of.
+
+People can make pretty good predictions if they do not have to make too 
+many decisions. That is why the assumption that the data generating 
+process is linear is so popular among data miners, even though no one
+really believes it. If you open up the scope of possible models to 
+include non-linear data-generating processes, then there are orders of
+magnitude more models to consider. And in that situation, a lot of
+data miners choose a suboptimal model because they overfit the training
+data.
+
+It takes at least a year to become proficient with R but you need to 
+put your self on a pace for learning R that allows you to become proficient
+in a year or two. Then you will be able to implement data mining approaches
+with new objective functions or objective functions that are chosen because
+they are appropriate for the problem at hand. That also opens up the
+space of possible models $\times$ objective functions so you still have to
+be good at choosing which is the best approach.
+
+# Money Quotes
+
+From the _Introduction to Statistical Learning with Applications in R_
+
+> Tree-based methods are simple and useful for interpretation. However,
+> they typically are not competitive with the best supervised learning ap-
+> proaches, such as those seen in [previous chapters] in terms of prediction
+> accuracy.
+
+Simplicity and ease of interpretation are what many people want in 
+quantitative methods and in order to get people to read books like _Introduction ..._
+you have to appeal to that misconception. You actually want methods that
+give accurate predictions outside the testing sample, which may be anywhere
+on the continuum between simple and complicated. They are typically more
+complicated than the simplest methods and more simple than the most
+complicated methods. 
+
+To the authors' credit, they go on to say
+
+> Hence in this chapter we also introduce bagging, random forests,
+> and boosting. Each of these approaches involves producing multiple trees
+> which are then combined to yield a single consensus prediction. We will
+> see that combining a large number of trees can often result in dramatic
+> improvements in prediction accuracy, at the expense of some loss in interpretation.
+
+# Review from last week: Step functions
+
+```{r}
+library(ISLR)
+Wage$age_cut <- cut(Wage$age, breaks = 5)
+summary(lm(wage ~ age_cut, data = Wage))
+```
+
+# How to Do a Tree
+
+Here are some data on baseball players:
+
+```{r}
+with(Hitters, plot(Years, Hits, pch = 20, las = 1))
+abline(v = 4.5, col = 2, lty = "dashed")
+segments(x0 = 4.5, y0 = 117.5, x1 = 50, col = 3, lty = "dotted")
+```
+
+Take the mean of the variable of interest among the subset of observations
+that fail to satisfy or satisfy a logical condition. To take log-salary
+as an example,
+```{r}
+with(Hitters, mean(log(Salary[Years < 4.5]), na.rm = TRUE))
+with(Hitters, mean(log(Salary[Years >= 4.5 & Hits < 117.5]), na.rm = TRUE))
+with(Hitters, mean(log(Salary[Years >= 4.5 & Hits >= 117.5]), na.rm = TRUE))
+```
+
+The same thing can be done with less typing and more generality using
+the __dplyr__ package, as we have already learned.
+```{r}
+library(dplyr)
+group_by(Hitters, Years < 4.5, Hits < 117.5) %>% 
+  summarize(prediction = mean(log(Salary), na.rm = TRUE))
+```
+
+Critical question: What logical conditions should be used to partition
+the predictors into subsets where we can take the mean of the outcome?
+
+An answer: One way is to choose the logical conditions to minimize the
+sum-of-squared residuals between the outcome and the strata-means. There
+are algorithms that take a path-like approach to solving this optimization
+problem since there is no closed-form solution like there is with OLS.
+
+```{r, message = FALSE}
+library(caret)
+set.seed(12345)
+Hitters <- filter(Hitters, !is.na(Salary))
+in_train <- createDataPartition(Hitters$Salary, p = 3 / 4, list = FALSE)
+training <- Hitters[in_train, ]
+testing <- Hitters[-in_train, ]
+```
+
+```{r}
+ctrl <- trainControl(method = "cv", number = 10)
+out <- train(log(Salary) ~ ., data = training, method = "rpart2",
+             tuneLength = 10, trControl = ctrl)
+plot(out)
+```
+
+```{r}
+plot(out$finalModel)
+text(out$finalModel, pretty = 0)
+y_hat <- predict(out, newdata = testing)
+defaultSummary(data.frame(obs = testing$Salary, 
+                          pred = exp(y_hat)))
+```
+
+This process is virtually guaranteed to overfit in the training data and
+predict poorly in the testing data. One approach to this problem is to
+utilize "tree pruning" after the initial algorithm has terminated to 
+choose the best parts of the original tree. This is just another version
+of the idea of regularization that we have seen before with ridge
+regression, lasso, penalized objective functions, etc.
+
+```{r}
+new_out <- rpart::prune(out$finalModel, cp = 0.3)
+new_out
+plot(new_out)
+text(new_out, pretty = 0)
+```
+
+# Model Trees
+
+You could estimate a model for the observations corresponding to 
+each leaf, instead of using a conditional mean (which is equivalent
+to a model with just an intercept).
+
+```{r, eval = FALSE}
+# this takes a long time
+out <- train(log(Salary) ~ ., data = training, method = "M5",
+             trControl = ctrl, control = RWeka::Weka_control(M = 10))
+```
+
+# Extension to Classification Problems
+
+This is not really much of an extension because the strata-means are
+just probabilities and we can classify binary outcomes by cutting
+the probability space at some threshold like $0.5$. For categorical
+outcomes with more than two levels, we predict with the modal
+probability for that stratum. The objective function being minimized
+can be the proportion of misclassified observations in the training sample.
+However, this objective function is not very good and other functions, such as
+$$G = \sum_{k=1}^K{\hat{p}_{mk} \times \left(1 - \hat{p}_{mk} \right)}$$ 
+$$D = -\sum_{k=1}^K{\hat{p}_{mk} \times \ln \hat{p}_{mk}}$$
+are also used. This $D$ tends to favor strata probabilities that are very
+close to zero or very close to one.
+
+```{r}
+out <- train(default ~ ., data = Default, method = "rpart2",
+             tuneLength = 10, trControl = ctrl)
+plot(out$finalModel)
+text(out$finalModel, pretty = 0)
+```
+
+# Ways to Improve Tree-Based Methods
+
+## Bagging
+
+Trees yield predictions with high variance, even though averaging tends
+to reduce variance. Bootstrap AGGregatING is a way to reduce variance
+via averaging. Repeat the following $B > 1$ times
+
+1. Draw a sample (with replacement) from the training data that is the
+  same size as the training data
+2. Apply a tree-based algorithm
+
+Then average the $B$ sets of results. For qualitative outcomes, rather
+than averaging the classifications, we can do other things like taking
+the plurality prediction among the $B$ sets of results.
+
+When we draw a sample with replacement from the training data about
+two-thirds of the observations will be used (some more than once).
+The other one-third of the observations will be unused and form a 
+natural "testing" dataset referred to as out-of-bag observations.
+We can tune an algorithm on the $b$-th bootstrapped sample based on
+how it does in the out-of-bag observations, and either average or
+vote over the $B$ bootstapped samples. For large $B$, this is very
+similar to what you would get with leave-one-out cross-validation.
+
+```{r}
+library(doMC)
+registerDoMC(parallel::detectCores())
+```
+
+```{r}
+out <- train(log(Salary) ~ ., data = training, method = "treebag")
+out
+y_hat <- predict(out, newdata = testing)
+defaultSummary(data.frame(obs = testing$Salary, 
+                          pred = exp(y_hat)))
+```
+
+## Random Forests
+
+For each bootstrapped sample, only a random subset of the available 
+predictors are considered for a split. Usually the size of the
+subset is chosen to be on the order of the square root of the number
+of available predictors. This process makes the bagged predictions
+less correlated and hence the ultimate predictions have less variance.
+
+```{r}
+rf_grid <- data.frame(.mtry = 2:(ncol(training) - 1L))
+out <- train(log(Salary) ~ ., data = training, method = "rf",
+             trControl = ctrl, tuneGrid = rf_grid, 
+             ntrees = 1000, importance = TRUE)
+varImp(out)
+y_hat <- predict(out, newdata = testing)
+defaultSummary(data.frame(obs = testing$Salary, 
+                          pred = exp(y_hat)))
+```
+
+## Boosting
+
+Boosting does not necessarily involve bootstrapping; i.e. there is only one set
+of training data and all of it is used. Instead of calculating the
+difference between the outcome and the strata-means and trying
+to minimize the sum-of-squared residuals, boosting calculates the
+difference between the previous residuals (from earlier stages of
+the tree) and the strata-means. In this sense, boosting tries to
+create "slow learners" and has a tuning parameter that governs
+the rate of learning.
+
+```{r}
+gbm_grid <- expand.grid(.interaction.depth = seq(1, 7, by = 2),
+                        .n.trees = seq(100, 1000, by = 50),
+                        .shrinkage = c(0.01, 0.1),
+                        .n.minobsinnode = 1:10)
+out <- train(log(Salary) ~ ., data = training, method = "gbm",
+             trControl = ctrl, tuneGrid = gbm_grid, 
+             verbose = FALSE)
+y_hat <- predict(out, newdata = testing)
+defaultSummary(data.frame(obs = testing$Salary, 
+                          pred = exp(y_hat)))
+```
+
+## Bayesian Additive Regression Trees
+
+This approach is not talked about in the textbooks
+for this class, but is arguably the best implementation of the tree
+approach. Unfortunately, I don't have time to adequately explain the 
+Bayesian aspect of it in this class.
+
+In short, there is an additive model where
+
+$$\mathbf{y} = g\left(\mathbf(X)\right) + \boldsymbol{\epsilon}$$
+
+the errors are iid normal with unknown variance and for large $M$,
+
+$$g\left(\mathbf(X)\right) \approx \sum_{m=1}^M
+\mathcal{T}_m\left(\left.\boldsymbol{\mu}\right|\mathbf{X}\right)$$
+
+where $\mathcal{T}_m\left(\left.\boldsymbol{\mu}\right|\mathbf{X}\right)$
+is a tree structure. 
+
+The algorithm to draw from the implied distribution of $\boldsymbol{\mu}$
+is a combination of Metropolis-Hastings and Gibbs sampling with
+MH proposals to change the structure of the trees
+
+1. GROW by making a split with probability $\approx 0.28$
+2. PRUNE by eliminating a split with probability $\approx 0.28$
+3. CHANGE by modifying a previous splitting rule with probability $1 - 2 \times 0.28$
+
+You can then get predictions of the outcome given $\boldsymbol{\mu}$,
+although here I simply average over that distribution (which is not a good
+idea)
+
+```{r}
+library(BART)
+X_train <- model.matrix(log(Salary) ~ ., data = training)
+X_test <- model.matrix(log(Salary) ~ ., data = testing)
+out <- mc.wbart(X_train, y = log(training$Salary), X_test,
+                mc.cores = parallel::detectCores())
+defaultSummary(data.frame(obs = testing$Salary,
+                          pred = exp(out$yhat.test.mean)))
+```
+
+The approach implemented by BART has the most sophisticated
+algorithm for dealing with missingness (on predictors _only_)
+but you have to use a different package that has additional
+rules for dealing with missing values.
+
+Here is a poll taken the day before the 2012 presidential
+election between Obama and Romney
+```{r}
+load("GooglePoll.RData") # brings in data.frame called poll
+poll <- poll[!is.na(poll$WantToWin),]
+poll$WantToWin <- factor(poll$WantToWin, labels = c("Obama", "Romney"))
+summary(poll)
+```
+as you can see there is some missingness on several variables.
+We could do
+```{r, eval = FALSE}
+library(sbart)
+options(na.action='na.pass', contrasts = rep("contr.treatment", 2))
+X <- model.matrix(WantToWin ~ Gender + Age + Urban_Density + Income + Region,
+                  data = poll, na.action = na.pass)
+out <- seqBART(X, poll$WantToWin == "Obama", 
+               datatype = rep(1, ncol(X)), type = 2)
+```
+This takes a long time but eventually produces a matrix 
+where the missing values have been replaced by random predictions
+given all the other predictors (and the outcome).
+
+# Table 10.1: Off-the-Shelf Procedures for Data Mining
+
+The ISLR authors compare a few algorithms on a variety of criteria
+
+* Can handle mixed data types
+* Can handle missing values (well)
+* Robustness to outliers
+* Insensitivity to monotone transformations
+* Compatational scalability in the number of observations
+* Can easily prune away irrelevant predictors
+* Can extract linear combinations of predictors
+* Easy to interpret
+* Predictive power
+
+Trees are rated as good on all these criteria except
+
+* Can extract linear combinations of predictors
+* Easy to interpret 
+* Predictive power
+
+Really, there is a tradeoff: single-tree approaches are easy to 
+interpret but have poor predictive power whereas multiple-tree
+approaches like bagging, random forests, boosting, and bart
+are hard to interpret but can have very good predictive power.
+The choice is easy but a lot of people make the wrong choice
+because they are trying to make "data mining" scientific. If
+interpretability is important in a particular research context,
+then you need a substantive model and approach it statistically.

@@ -1,0 +1,331 @@
+---
+title: "GR5058 Week 10"
+author: "Ben Goodrich"
+date: "November 13, 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+To knit this RMarkdown file, you will need to have installed the following
+R packages: caret, MASS, rgenoud, RcppDE, glmpath, glmnet
+
+# Classification
+
+Last week, we talked about linear regression models where the outcome we were interested
+in predicting was continuous or at least count-valued. This week, we are mostly
+talking about (generalized linear) regression models where the outcome we are 
+interested in predicting is discrete, often binary. Indeed, data miners often dichotomize
+a continuous coutcome (such as movement of the stock market) into a binary variable (
+stock market moves up or down) in order to apply classification methods to it, which
+makes little sense. It would be better to specify a regression model for the original
+continuous outcome and discretize the predictions if absolutely necessary.
+
+Anyway, these models for discrete outcomes often yield an predicted _probability_ that 
+the outcome will be this or that category. Data miners
+almost always go a step farther and prescribe a classification rule that maps 
+probabilities into a predicted category. Although this practice is quite common, 
+it has been heavily criticized by various scientists, such as
+
+http://www.fharrell.com/post/class-damage/
+
+# Binary classification via a Linear Probability Model
+
+Let $y_{i}$ be either $0$ or $1$. Could do a linear regression to find $\mathbf{b}=\left(\mathbf{X}^{\top}\mathbf{X}\right)^{-1}\mathbf{X}^{\top}\mathbf{y}$
+in the training data and then predict $\mathbf{y}^\prime$ in the testing data with $\widehat{\mathbf{y}}^\prime=\mathbf{X}^\prime\mathbf{b}=
+\mathbf{X}^\prime\left(\mathbf{X}^{\top}\mathbf{X}\right)^{-1}\mathbf{X}^{\top}\mathbf{y}=
+\mathbf{H}\mathbf{y}$. This Linear Probability Model (LPM) is actually pretty 
+common in economics, due to its easy (but absurd) interpretation for each $b_{k}$ as an
+estimate of $\beta_{k}$. But $\widehat{y}_{i}^\prime$ may be outside the $\left[0,1\right]$ 
+interval and $e_{i}=y_{i}-\widehat{y}_{i}$ does not have constant variance, although data 
+miners do not care about these shortcomings of LPMs.
+
+You could classify according to the rule $z_{i}=\begin{cases}
+1 & \mbox{if }\widehat{y}_{i}^\prime > 0.5\\
+0 & \mbox{if }\widehat{y}_{i}^\prime \leq 0.5
+\end{cases}$
+and evaluate how often $y_{i}^\prime == z_{i}$ in the testing data.
+But LPMs tend to produce more classification errors than other algorithms.
+
+This can be extended to the case where an outcome can take on one of $J > 2$ discrete categories.
+Define the $N\times J$ matrix $\mathbf{Y}$ such that $y_{ij}=\begin{cases}
+1 & \mbox{if }i\mbox{ is in }j\\
+0 & \mbox{otherwise}
+\end{cases}$
+You could do a linear regression in the training data to find $\mathbf{B}=\left(\mathbf{X}^{\top}\mathbf{X}\right)^{-1}\mathbf{X}^{\top}\mathbf{Y}$
+and predict the outcome matrix in the testing data with $\widehat{\mathbf{Y}}^\prime
+=\mathbf{X}^\prime \mathbf{B} = \mathbf{X}^\prime\left(\mathbf{X}^{\top}\mathbf{X}\right)^{-1}\mathbf{X}^{\top}\mathbf{Y}=\mathbf{H}\mathbf{Y}$.
+Classify according to the rule $z_{ij}=\arg\max\,\widehat{\mathbf{y}^\prime}_{i}$
+and evaluate how often $y_{ij}^\prime=z_{ij}$ in the testing data
+Again LPMs tend to produce more errors than other algorithms, particularly bad when $J$ is large.
+
+To illustrate these ideas, we first get the data on coronary heart disease in South Africa
+```{r}
+SAheart <- read.csv("https://web.stanford.edu/~hastie/ElemStatLearn/datasets/SAheart.data",
+                    header = TRUE)
+SAheart$row.names <- NULL # get rid of the first column
+SAheart$chd <- factor(SAheart$chd, labels = c("yes", "no"), levels = 1:0) # very important
+```
+It is very important in R to designate outcome variables as factors in classification
+problems. Otherwise, many supervised learning algorithms will treat them as continuous
+and do LPMs, which is a very bad idea even though we are going to do so here. So, 
+code them as `factor`s and if you later need to coerce them to dummy variables for 
+some reason, you can do so then.
+
+```{r, message = FALSE}
+library(caret)
+set.seed(12345)
+in_train <- createDataPartition(y = SAheart$chd, p = 3 / 4, list = FALSE)
+training <- SAheart[ in_train, ]
+testing  <- SAheart[-in_train, ]
+ols <- lm(chd == "yes" ~ ., data = training)
+```
+
+The matrix of confusion is a common way to evaluate classifications. Simply make a 
+square contingency table between the levels in the classification and the outcomes
+in the testing data:
+```{r}
+y_hat_ols <- predict(ols, newdata = testing)
+z_ols <- factor(y_hat_ols > 0.5, levels = c(TRUE, FALSE), labels = c("yes", "no"))
+table(z_ols, testing$chd) # matrix of confusion
+```
+
+# Binary classification via logistic regression
+
+A generalized linear model consists of three parts
+
+1. $\eta=\mathbf{x}^{\top}\boldsymbol{\beta}$ the linear predictor
+2. $p=g^{-1}\left(\eta\right)$ the inverse link function
+3. $\Pr\left(\left.y\right|p\right)$ the likelihood of the data
+
+Data miners will add a fourth component: The penalization function
+of $\boldsymbol{\beta}$, here denoted $h\left(\beta\right)$. 
+In the case of a logit model, 
+$p=g^{-1}\left(\eta\right)=\frac{1}{1+e^{-\eta}}$
+and $\Pr\left(y=p\right)=p^{y}\left(1-p\right)^{1-y}$
+The objective function is $\sum_{i=1}^{N}\ln\left[\widetilde{p}_{i}^{y_{i}}\left(1-\widetilde{p}_{i}\right)^{1-y_{i}}\right]+\sum_{k=1}^{K}h\left(\widetilde{\beta}_{k}\right)$ 
+Data miners choose $\widetilde{\boldsymbol{\beta}}$ to minimize this and obtain
+$\boldsymbol{\beta}^{\ast}$ to then use to get the
+testing probability with $p^{\ast}=\frac{1}{1+e^{-\mathbf{x^\prime}^{\top}\beta^{\ast}}}$
+and classify as $1$ if $p^{\ast}\geq 0.5$.
+
+```{r}
+logit <- glm(chd ~ ., data = training, family = binomial(link = "logit"))
+y_hat_logit <- predict(logit, newdata = testing, type = "response") # these are probabilities
+# these are classifications
+z_logit <- factor(y_hat_logit > 0.5, levels = c(TRUE, FALSE), labels = c("yes", "no")) 
+table(z_logit, testing$chd)
+```
+
+To get a penalized version, we can use `train` with `method = "glmnet"`.
+
+```{r}
+ctrl <- trainControl(method = "repeatedcv", repeats = 3, 
+                     classProbs = TRUE, summaryFunction = twoClassSummary)
+tune_grid <- expand.grid(.alpha = seq(0, 1, length.out = 10),
+                         .lambda = seq(0, 1, length.out = 10))
+penalized_logit <- train(chd ~ ., data = training, method = "glmnet", 
+                         trControl = ctrl, metric = "ROC", tuneGrid = tune_grid,
+                         preProcess = c("center", "scale"))
+y_hat_penalized_logit <- predict(penalized_logit, newdata = testing, type = "prob")$yes
+# above are probabilities, below are classifications
+z <- predict(penalized_logit, newdata = testing) 
+defaultSummary(data.frame(obs = testing$chd, pred = z))
+confusionMatrix(z, reference = testing$chd)
+```
+What are all these things? If the matrix of confusion is
+
+Predicted / Observed | yes  | no
+-------------------  | ---- | ----
+yes                  | A    | B
+no                   | C    | D
+
+then, 
+
+Sensitivity $= A/(A+C)$
+
+Specificity $= D/(B+D)$
+
+Prevalence $= (A+C)/(A+B+C+D)$
+
+PPV $= \frac{sensitivity \times prevalence}{(sensitivity \times prevalence) + ((1-specificity) \times (1-prevalence))}$
+
+NPV $= \frac{specificity \times (1-prevalence)}{((1-sensitivity)\times prevalence) + ((specificity)\times (1-prevalence))}$
+
+Detection Rate $= A/(A+B+C+D)$
+
+Detection Prevalence $= (A+B)/(A+B+C+D)$
+
+Balanced Accuracy $= (sensitivity+specificity)/2$
+
+Precision $= A/(A+B)$
+
+Recall $= A/(A+C)$
+
+F1 $= 2 \times precision \times recall/(precision+recall)$
+
+The Receiver Operating Characteristic (ROC) curve was used in the cross validation
+process to choose the best value of the tuning parameters according to which yielded
+the highest Aread Under Curve (AUC) in the held-out fold. You can evaluate these in
+the testing data with
+```{r, message = FALSE}
+library(pROC)
+penalized_logit_ROC <- roc(testing$chd, 
+                           predict(penalized_logit, newdata = testing, type = "prob")[ , "yes"])
+plot(penalized_logit_ROC, las = 1)
+auc(penalized_logit_ROC)
+```
+
+We can use a calibration plot to judge how well are models are calibrated. The intuition
+here is that if a model says there is about a $0.2$ probability of success then about
+$20\%$ of the observations should be successful that have a predicted probability of about 
+$0.2$. The same logic can be applied for all small bins of the probability between $0$ and
+$1$ and the lines should be close to the 45-degree line, which they are not in this case.
+```{r}
+cc <- calibration(chd ~ y_hat_logit  + y_hat_penalized_logit, data = testing)
+plot(cc) # pink is for the penalized logit model
+```
+
+
+# The Multivariate Normal (MVN) Distribution
+
+A common continuous distribution for a vector of length $p$ is the multivariate normal distribution, 
+which has two parameters
+
+1. A mean vector, $\boldsymbol{\mu}$
+2. A symmetric covariance matrix, $\boldsymbol{\Sigma}$ where $\Sigma_{ii}$ is the variance of the $i$-th
+  variable and $\Sigma_{ij}$ is the covariance between the $i$-th and $j$-th variable. This covariance
+  is equal to the correlation between the $i$-th and $j$-th variables multiplied by their respective
+  standard deviations, which are the positive square roots of their variances.
+
+# Discriminant Analysis
+
+If the outcome variable defines $J \geq 2$ groups, let $\mathbf{B}$ be the between-group covariance
+matrix among the $J$ group mean vectors and let $\mathbf{W}$ be the within-group covariance matrix
+aggregated over the $J$ groups. Then, if the objective is to maximize
+$$\frac{\mathbf{d}^\top \mathbf{B} \mathbf{d}}{\mathbf{d}^\top \mathbf{W} \mathbf{d}}$$
+then, the solution is the first eigenvector of $\mathbf{W}^{-1}\mathbf{B}$. When we project a
+generic vector of preductors $\mathbf{x}$ onto this solution, we get
+$\boldsymbol{\delta}\left(\mathbf{x}\right)=\mathbf{x}^{\top}\boldsymbol{\Sigma}^{-1}\boldsymbol{\mu}_{j}-\frac{1}{2}\boldsymbol{\mu}_{j}^{\top}\boldsymbol{\Sigma}^{-1}\boldsymbol{\mu}_{j}+\ln\pi_{j}$,
+where $\boldsymbol{\mu}_j$ is the mean vector for the $j$-th group, $\boldsymbol{\Sigma}$ is
+the (common) covariance matrix across the $J$ groups, and $\pi_j$ is the probability of falling
+in the $j$-th outcome category. $\boldsymbol{\delta}\left(\mathbf(x)\right)$
+is a "discriminant", which is a linear function of $\mathbf{x}$, can be estimated from the
+training data to provide a boundary between the two outcome classes. Then, we could classify according to
+$z_{ij}=\arg\max\,\boldsymbol{\delta}\left(\mathbf{x}_{i}^\prime\right)$ in the testing data.
+
+Now relax the assumption that $\boldsymbol{\Sigma}_{j}=\boldsymbol{\Sigma}\,\forall j$ and let
+$\boldsymbol{\delta}\left(\mathbf{x}\right)=-\frac{1}{2}\left|\boldsymbol{\Sigma}_{j}\right|-\frac{1}{2}\left(\mathbf{x}-\boldsymbol{\mu}_{j}\right)^{\top}\boldsymbol{\Sigma}^{-1}\left(\mathbf{x}-\boldsymbol{\mu}_{j}\right)+\ln\pi_{j}$
+be a "discriminant"", which is a quadratic function of $\mathbf{x}$. For each of the $J$ groups 
+defined by the outcome, you now have to estimate a $p\times p$ symmetric covariance matrix
+$\boldsymbol{\Sigma}_{j}$, which has $p+\frac{p\left(p-1\right)}{2}$ unknowns, so
+data miners often regularize the covariance estimates with one or more of the following techniques:
+
+1. $\boldsymbol{\Sigma}_{j}\left(\alpha,\gamma\right)=\alpha\widehat{\boldsymbol{\Sigma}}_{j}+\left(1-\alpha\right)\widehat{\boldsymbol{\Sigma}}\left(\gamma\right)$
+(shrinkage toward $\widehat{\boldsymbol{\Sigma}}$)
+2. $\widehat{\boldsymbol{\Sigma}}\left(\gamma\right)=\gamma\widehat{\boldsymbol{\Sigma}}+\left(1-\gamma\right)\sigma^{2}\mathbf{I}$
+(shrinkage toward $\mathbf{I}$)
+3. $\widehat{\boldsymbol{\Sigma}}=\boldsymbol{\beta}^{\top}\boldsymbol{\Phi}\boldsymbol{\beta}+\boldsymbol{\Theta}$
+(common factor structure)
+
+```{r}
+LDA <- train(chd ~ sbp + tobacco + ldl + famhist + obesity + alcohol + age, 
+             data = training, method = "lda", preProcess = c("center", "scale"))
+confusionMatrix(predict(LDA, newdata = testing), reference = testing$chd)
+```
+
+```{r}
+QDA <- train(chd ~ sbp + tobacco + ldl + famhist + obesity + alcohol + age, 
+             data = training, method = "qda", preProcess = c("center", "scale"))
+confusionMatrix(predict(QDA, newdata = testing), reference = testing$chd)
+```
+
+Partial Least Squares Discriminant Analysis (PLSDA) is a combination of Partial
+Least Squares (PLS) that we learned about before in a regression context and
+linear discriminant analysis. This might be especially useful when you have
+more predictors than observation in the training dataset, in which case
+LDA and QDA cannot be used because they require inverting a matrix that
+has no inverse.
+```{r}
+PLSDA_grid <- expand.grid(.ncomp = 1:7)
+PLSDA <- train(chd ~ sbp + tobacco + ldl + famhist + obesity + alcohol + age, 
+               data = training, method = "pls", preProcess = c("center", "scale"),
+               metric = "ROC", trControl = ctrl, tuneGrid = PLSDA_grid)
+confusionMatrix(predict(PLSDA, newdata = testing), reference = testing$chd)
+```
+
+# Nearest Shrunken Centroids
+
+The Nearest Shrunken Centroids approach is a bit like $K$-means for cluster
+analysis, except this time the objective is classification of a discrete
+(often binary) outcome in the testing data. This is another method that
+is well-suited for the case where you have more predictors than observations
+in the training data. You can invoke it like
+
+```{r, results = "hide"}
+NSC <- train(chd ~ sbp + tobacco + ldl + famhist + obesity + alcohol + age,
+             data = training, method = "pam", preProcess = c("center", "scale"),
+               metric = "ROC", trControl = ctrl, 
+             tuneGrid = data.frame(.threshold = 0:25))
+```
+```{r}
+confusionMatrix(predict(NSC, newdata = testing), reference = testing$chd)
+predictors(NSC) # retained predictors
+```
+
+# Writing your own objective function
+
+The R language allows you to write your own functions. We saw an example in the
+third week where
+
+```{r}
+sinc <- function(x) {
+  value <- ifelse(x == 0, 1, sin(x) / x)
+  return(value)
+}
+```
+
+I can then call my function, like
+
+```{r}
+sinc(pi / 2)
+```
+
+Notice that if I try to refer to an object called `value`, nothing is found
+```{r, error=TRUE}
+value
+```
+That is because everything inside the curly braces is considered "local" to the
+function and is removed from memory when the function returns.
+
+The style rules for functions are
+
+1. Within a function, only refer to the function's arguments or to other objects
+  created within the function
+2. The arguments to the function should have meaningful (or generic, such as `x`)
+  names, should be listed roughly in decreasing order of importance to the user,
+  and the trailing arguments should have good default values if necessary
+3. The function should end with a `return` statement. Only one object can be
+  returned, but that can be --- and often is --- a list containing various objects.
+
+We can define a log-likelihood function for a logit model as
+```{r}
+# this is the log-likelihood function we will maximize
+ll <- function(beta, X, y) {
+  eta <- X %*% beta
+  p <- 1 / (1 + exp(-eta))
+  return( sum(dbinom(y, size = 1, prob = p, log = TRUE)) )
+}
+```
+and then find the coefficients that optimize it
+```{r}
+p <- length(coef(logit))
+opt <- optim(rep(0, p), fn = ll, method = "BFGS", 
+             X = model.matrix(logit), y = training$chd == "yes",
+             # this next line is critical: 
+             # it tells R to maximize rather than minimize
+             control = list(fnscale = -1))
+cbind(GLM = coef(logit), optim = opt$par) # very similar in magnitude but opposite signs
+```

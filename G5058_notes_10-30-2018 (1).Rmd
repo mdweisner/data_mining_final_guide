@@ -1,0 +1,460 @@
+---
+title: "G5058 Week 09"
+author: "Ben Goodrich"
+date: "October 30, 2018"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, eval = FALSE}
+install.packages(c("lars", "caret", "elasticnet", "mlbench")) # do this once outside
+```
+
+# Least Squares Estimator
+
+Suppose that you have a $N \times p$ matrix of predictors, $\mathbf{X}$, that 
+typically includes a column of ones, and an outcome vector, $\mathbf{y}$. You
+think that the outcome is generated as a linear function of the predictors
+$$y_i = \sum_{k=1}^p x_{ik} \boldsymbol{\beta}_k + \epsilon_i$$
+with weights $\boldsymbol{\beta}$ and errors $\boldsymbol{\epsilon}$.
+
+The least squares estimator is 
+$\left(\mathbf{X}^\top \mathbf{X}\right)^{-1} \mathbf{X}^\top \mathbf{y}$
+provided that $\left(\mathbf{X}^\top \mathbf{X}\right)^{-1}$ exists, which
+it typically will if $N > p$ unless some column of $\mathbf{X}$ is an
+_exact_ linear function of the other columns in $\mathbf{X}$. If you are an 
+econometrician or statistician who is interested in making an inference
+about $\boldsymbol{\beta}$ in the population from a finite but random sample 
+of size $N$ from that population, then the absence of a _unique_ solution 
+for the coefficients is a devestating problem. If you a data miner who is
+only interested in making predictions for the outcomes, then the lack of
+a unique solution is no big deal because _any_ solution yields the same
+predictions $\widehat{\mathbf{y}} = \mathbf{X} \mathbf{b}$. However, you
+might and should be worried that the error when predicting _this_ 
+$\mathbf{y}$ is less than the prediction error when predicting _future_
+outcomes.
+
+# Training and Testing
+
+In supervised learning, $\mathbf{X}$ and $\mathbf{y}$ are called the "training data",
+which are used to obtain $\mathbf{b}$ in this case or more generally to solve
+some optimization problem. Let $\mathbf{X}^\ast$ and $\mathbf{y}^\ast$ denote
+the corresponding matrix of predictors and outcome vector in the "testing data",
+which are additional observations that are _not_ used to obtain $\mathbf{b}$
+and are instead used to evaluate the model that produced $\mathbf{b}$.
+
+For supervised learning, the only question that matters is how well does the
+model predict $\mathbf{y}^\ast$, which can be evaluated by several criteria,
+such as 
+$\frac{1}{N^\ast} \mathbf{e}^\ast\left(\mathbf{b}\right)^\top \mathbf{e}^\ast\left(\mathbf{b}\right)$, where $N^\ast$ is the number of 
+testing observations and
+$$\mathbf{e}^\ast\left(\mathbf{b}\right) = \mathbf{y}^\ast - \mathbf{X}^\ast \mathbf{b}.$$
+
+For example,
+```{r}
+prostate <- read.table("http://web.stanford.edu/~hastie/ElemStatLearn/datasets/prostate.data",
+                       header = TRUE)
+str(prostate, max.level = 1)
+prostate[,1:8] <- scale(prostate[,1:8]) # data miners usually standardize
+```
+The `prostate` dataset already has a logical vector called `train` that was
+created somehow (often randomly).
+```{r}
+library(dplyr)
+training <- select(filter(prostate, train == 1), -train)
+testing <- select(filter(prostate, train == 0), -train)
+c(training = nrow(training), testing = nrow(testing))
+```
+
+# The `lm` function
+
+The most convenient way to obtain $\mathbf{b}$ in R is via the `lm` function,
+which you are probably already familiar with from your statistics classes.
+```{r}
+ols <- lm(lpsa ~ ., data = training)
+```
+where the `.` means include all variables in `training` that are not otherwised
+mentioned (like `lpsa` is)
+
+However, in G5058, you should not utilize the output of `lm` for 
+_statistical_  purposes, such as calculating standard errors, test statistics, 
+$p$-values, confidence intervals, etc. Those all presume that your data is a random 
+sample from a population and that you are interested in the probability 
+distribution of $\mathbf{b}$ over repeated samples of size $N$ from this 
+population. In supervised learning, the data are almost never a random sample 
+from a population and even if they were, data miners do not care about the 
+probability distribution of $\mathbf{b}$ over repeated samples of size $N$ from 
+that population. Just like you can lose points for working R code that does
+not utilize proper style, you can lose points for referring to R output that
+relies on statistical assumptions in order to make statistical inferences.
+
+You may think that a coefficient estimate that is "statistically significant"
+would also imply the variable is a good predictor of the outcome, but you
+would sometimes be wrong. Tian Zheng in the statistics department at Columbia
+co-authored a paper
+http://www.pnas.org/content/112/45/13892.long
+explaining "Why significant variables aren’t automatically good predictors",
+which QMSS does not really give you the tools to understand fully. I would say
+the essence of it is that predictions are a function of the _entire_ $\mathbf{X}$
+matrix and whether a variable adds predictive ability depends on how it combines
+with the other variables in $\mathbf{X}$. Whether a coefficient is statistically
+significant adds additional assumptions that may not hold but also refers to a
+scenario in which all the other variables in $\mathbf{X}$ are held constant in
+order to isolate the effect of one variable.
+
+Data miners typically would not even look at the solution vector of coefficients,
+although it is possible to do so
+```{r}
+round(coef(ols), digits = 2) # the b vector
+```
+
+We can verify that 
+$\left(\mathbf{y} - \mathbf{X}\mathbf{b}\right)^\top \mathbf{X}$ is a zero 
+(row) vector using the `residuals` and `model.matrix` functions, which 
+extract the residuals and the $\mathbf{X}$ matrix used to obtain them from
+a previously-fitted object:
+```{r}
+X <- model.matrix(ols)
+round(t(residuals(ols)) %*% X, digits = 14) # zeros by construction
+```
+One of the worst mistakes that people make is to take the fact that this is a
+zero vector as _evidence_ that a linear model is correct. This merely defines
+the estimator and holds regardless of whether the outcome is generated as a
+linear function of these predictors.
+
+We can also calculate the Mean Squared Error (MSE) in the _testing_ data 
+using the `predict` function and the `newdata` argument:
+```{r}
+y_hat <- predict(ols, newdata = testing)
+mean((testing$lpsa - y_hat) ^ 2)
+```
+
+# Cross validation
+
+You will also see data miners use what is known as $k$-fold cross-validation, 
+where you split the original dataset into $k$ (often $k = 10$) mutually exclusive
+and exhaustive (and often equally sized) subsets, treat $k - 1$ of these subsets
+collectively as the "training" data to obtain $\mathbf{b}$ and use the excluded 
+subset as the "testing" data to evaluate $\mathbf{e}^\ast\left(\mathbf{b}\right)$. 
+That can be done $k$ possible ways and you can average the results over them.
+
+The **caret** package makes this relatively easy to do
+
+```{r, message = FALSE}
+library(caret)
+ctrl <- trainControl(method = "cv", number = 10)
+set.seed(12345)
+ols_cv <- train(lpsa ~ ., data = training, method = "lm", trControl = ctrl)
+ols_cv
+```
+In this particular case, the Root Mean Squared Error (RMSE) when predicting
+the outcome in the held-out fold is actually _less_ than the estimated standard 
+deviation of the error in the original model that used all the training data
+```{r}
+sigma(ols)
+```
+but usually the RMSE will be larger.
+
+# Boston Housing Example
+
+Step 0: Load the whole dataset
+```{r}
+data(BostonHousing, package = "mlbench")
+```
+
+Step 1: Split into training and testing
+```{r, message = FALSE}
+in_train <- createDataPartition(y = BostonHousing$medv,
+                                p = 3 / 4, list = FALSE)
+str(in_train)
+BH_training <- BostonHousing[ in_train, ]
+BH_testing  <- BostonHousing[-in_train, ]
+```
+
+Step 2: Solve an optimization problem using the pre-processed training data
+```{r}
+fit <- train(medv ~ ., data = BH_training, method = "lm", 
+             preProcess = c("center", "scale"))
+```
+
+Step 3: Predict in the testing data
+```{r}
+y_hat <- predict(fit, newdata = BH_testing)
+```
+
+Step 4: Evaluate
+```{r}
+defaultSummary(data.frame(obs = BH_testing$medv, pred = y_hat))
+```
+
+A similar set of steps can be used for many of the supervised learning
+methods we will learn for the rest of the semester in GR5058. However,
+in many cases there are additional tuning parameters we have to deal
+with.
+
+# Subset selection
+
+Forward selection starts with a model that just has an intercept and sequentially adds
+predictors. Backward selection starts with the full model and sequentially subtracts
+predictors. The `step` function in R, by default, uses a combination of both directions
+and ranks the models by the Aikaike Information Criterion (AIC), which is defined as $-2$
+times the "log-likelihood", plus $2$ times the number of parameters estimated. The
+log-likelihood in the regression case is a function of 
+$\mathbf{e}\left(\mathbf{b}\right)$.
+```{r}
+c(AIC = AIC(ols), formula = -2 * logLik(ols) + 2 * (length(coef(ols)) + 1))
+```
+As can be seen, the AIC consists of the sum of a "misfit" term and a "complexity" term.
+
+Using the AIC is preferable to using the adjusted R-squared or $p$-values for model
+selection because the model with the lowest AIC is _expected_ to predict best outside
+the training data. Data miners tend to prefer to obtain the model that _actually_
+predicts best in the particular testing data that they have and tend to have a dim
+opinion of tools invented by statisticians such as the AIC.
+
+```{r}
+ols_subset <- step(ols)
+round(coef(ols_subset), digits = 2)
+setdiff(names(coef(ols)), names(coef(ols_subset)))
+```
+
+# Why penalize?
+
+OLS chooses the coefficient values in order to minimize the sum-of-squared residuals.
+Doing so is an _unbiased_ estimator for the coefficients. What does unbiased mean in 
+the statistical sense? It means that if we were to sample $N$ observations from this
+population many, many times, each time executing the OLS estimators, the element-wise
+average of $\{\mathbf{b}^{[1]}, \mathbf{b}^{[2]}, \dots\}$ would be equal to 
+$\boldsymbol{\beta}$. Using an unbiased estimator for the coefficients presumes the true 
+coefficients in the population are of interest, which they may not be if we are only 
+interested in prediction of the outcome.
+
+Under some strong assumptions, OLS is the Best Linear Unbiased Estimator (BLUE), 
+meaning that among all linear estimators that are unbiased, OLS has the smallest
+variance in the coefficient estimates from one sample of size $N$ to the next.
+However, if you do not care about the distribution of the coefficient estimates from
+one random sample of size $N$ to the next, then it is quite possible to obtain a 
+non-linear or biased estimator that yields better predictions in the testing data.
+
+If the vector of residuals is given by 
+$e\left(\mathbf{b}\right) = \mathbf{y} - \mathbf{X} \mathbf{b}$
+there are a variety of estimators of the parameters in a linear model that minimize
+something other than the sum-of-squared residuals (SSR), such as
+
+* Ridge regression, which minimizes the SSR subject to the constraint that 
+$\mathbf{b}^\top \mathbf{b} \leq s$, which can be reformulated with a Lagrange
+multiplier as
+$$e\left(\mathbf{b}\right)^\top e\left(\mathbf{b}\right) + \lambda \sum_{k=1}^p b_k^2$$
+* Lasso, which minimizes the SSR subjec to the constraint that $\sum_{k=1}^p\left|b_k\right| < s$
+which can be reformulated with a Lagrange multiplier as
+$$e\left(\mathbf{b}\right)^\top e\left(\mathbf{b}\right) + \lambda \sum_{k=1}^p \left|b_k\right|$$
+* Least Angle Regression, which does not have an explicit objective function but is
+  sort of a combination of forward search and lasso.
+  
+Ridge regression and Lasso regression can be generalized to an objective function that
+minimizes the SSR plus $\lambda$ times the sum of absolute coefficients raised to some
+positive power $\left(\tau\right)$. 
+$$e\left(\mathbf{b}\right)^\top e\left(\mathbf{b}\right) + 
+\lambda \sum_{k=1}^p \left|b_k\right|^\tau$$
+This can be given a Bayesian justification (but that does not make the people who utilize 
+it Bayesians).
+
+Least squares has $p$ unknowns and $p$ orthogonality constraints so there is a unique
+solution (unless $\left(\mathbf{X}^\top \mathbf{X}\right)^{-1}$ does not 
+exist). When you introduce "tuning parameters" such as $\lambda$, then there are
+more unknowns than there are constraints. But for any given value of $\lambda$, then
+you can solve the optimization problem to obtain the coefficients. So, how do you
+choose the value for $\lambda$? The traditional answer is with some form of cross-validation
+to see which value of $\lambda$ yields the best predictions outside the data that
+are used to obtain the coefficients.
+
+First, we need a set of $\lambda$ values to search over.
+```{r, message = FALSE}
+enetGrid <- expand.grid(.lambda = seq(.05, 1, length = 10),
+                        .fraction = seq(.05, 1, length = 10))
+head(enetGrid)
+```
+Then, we use **caret** to find the best fraction of the 
+training data to use and the best value of $\lambda
+```{r}
+set.seed(12345)
+lasso <- train(lpsa ~ ., data = training, method = "enet", 
+               trControl = ctrl, tuneGrid = enetGrid)
+lasso$bestTune
+```
+
+Actually looking at the coefficients is somewhat convoluted (and not intended)
+```{r}
+lambda <- lasso$bestTune$lambda
+b_lasso <- coef(predict(lasso$finalModel, type = "coefficients", 
+                        s = lambda, mode = "penalty"))
+b_lasso
+```
+and we can see dropped the `lcp` variable from the model by giving it a 
+coefficient of zero.
+
+The `predict` method for the `lasso` object yields predictions in the
+testing data (for the best $\lambda$):
+```{r}
+y_hat <- predict(lasso, newdata = testing)
+mean( (testing$lpsa - y_hat) ^ 2 )
+```
+
+We can also do least angle regression in a similar fashion:
+```{r}
+enetGrid$.lambda <- NULL # delete the .lambda column
+LARS <- train(lpsa ~ ., data = training, method = "lars", 
+              trControl = ctrl, tuneGrid = enetGrid)
+LARS
+```
+
+# Derived Input Methods
+
+* Principal Components Regression, which involves replacing
+  correlated predictors with an orthogonal approximation of the space they span
+  If this involves two components, then it would be the dimensions of the 
+  `biplot` but it can involve more than two retained components.
+* Partial Least Squares, which is similar to Principal Components Regression but
+  does a matrix decomposition including the outcome as well, making it a
+  more supervised learning approach.
+
+Partial Least Squares (PLS) is better for a variety of reasons.
+
+In both cases, the key question is how many components to include in the 
+approximation.
+```{r, message = FALSE, warning = FALSE}
+PLS <- train(lpsa ~ ., data = training, method = "pls", 
+             tuneLength = 20, trControl = ctrl)
+PLS
+```
+
+```{r}
+y_hat <- predict(PLS, newdata = testing)
+mean( (testing$lpsa - y_hat) ^ 2 )
+```
+
+# Bakeoff with Apartment Prices
+
+There are two `data.frames` on CourseWorks that you can access by executing
+```{r eval=TRUE}
+training <- readRDS(gzcon(url('https://courseworks.columbia.edu/x/pJdP39')))
+testing  <- readRDS(gzcon(url('https://courseworks.columbia.edu/x/QnKLgY')))
+```
+that each contain $109$ randomly selected observations on apartments for purchase
+in a Western European city in $2005$. The dependent variable is `totalprice`, which
+is the purchase price of the apartment in Euros. The possible predictors are:
+
+* `area` the number of square meters in the apartment
+* `zone` an unordered factor indicating what neighborhood the apartment is in
+* `category` an ordered factor indicating the condition of the apartment
+* `age` number of years since the apartment was built
+* `floor` the floor of the building where the apartment is located
+* `rooms` the total number of rooms in the apartment
+* `out` an ordered factor indicating what percentage of the apartment's exterior
+  is exposed to the outside
+* `conservation` an ordered factor indicating how well the apartment is conserved
+* `toilets` a count
+* `garage` a count, i.e. some apartments have two garages
+* `elevator` a binary variable
+* `streetcategory` an ordered factor that captures the quality of the street the
+  apartment building is on
+* `heating` an unordered factor indicating something about the presence or absence
+  of (possibly central) heating for the apartment
+* `storage` a count of the number of storage rooms for the apartment
+
+Use the `training` data.frame to estimate models that are _linear in their parameters_ 
+and select the "best" such model according to which has the smallest average squared 
+error when you predict `totalprice` in the `testing` data. You will need the `predict` 
+function to do this.
+
+Let's start with a scatterplot of `totalprice` (in hundred thousand Euros) and 
+`area` (in square meters) with additional features of the apartment indicated:
+```{r, message = FALSE}
+training$toilets <- as.factor(training$toilets)
+training$storage <- as.factor(training$storage)
+testing$toilets <- as.factor(testing$toilets)
+testing$storage <- as.factor(testing$storage)
+library(ggplot2)
+ggplot(training) + 
+  geom_point(aes(x = area, y = totalprice / 1000, 
+                 col = rooms, shape = toilets, 
+                 fill = storage)) + 
+  xlab("Area (square meters)") + ylab("Price (in 1,000 Euros)")
+```
+
+As can be seen, there is not a whole lot of variation in `totalprice` to exaplin
+after the `area` of the apartment is taken into account. In particular, it looks
+as if the number of rooms is superfluous after adjusting for `area` and the 
+number of `toilets` (which are counted as a room each). In other words, four-room
+apartments are more expensive than two-room apartments but four-room apartments
+are proportionally larger in terms of `area` and almost always seem to have two 
+`toilets` and a `storage` area.
+
+This intuition is confirmed by the results of a regression
+(where the outcome is now in raw Euros)
+```{r}
+ols <- lm(totalprice ~ area + rooms + toilets + I(storage != 0), 
+          data = training)
+summary(ols)$adj.r.squared
+```
+This model has an (adjusted) $R^2$ that is greater than $0.7$. Nevertheless,
+a data miner would tend to use computational tools to try to arrive at a 
+reasonably parsimonious model that predicted well (in the testing sample),
+rather than starting there on the basis of (possibly flawed) intuition about
+how real estate prices work.
+
+Thus, we start with a model that includes all available predictors, an
+interaction between `elevator` and `floor` (because the presence of an
+elevator in the building is valuable, but not so much if you are on the
+first floor) and the square of `age` (in case there are non-linearities).
+Note that the `.` simply indicates all variables in `trainging` not otherwise 
+in the formula.
+```{r}
+ols <- lm(totalprice ~ . + elevator * floor + I(age ^ 2) - toilets - storage, 
+          data = training)
+y_hat_OLS <- predict(ols, newdata = testing)
+```
+The `step` function can then be used to rank variations on this model
+by the AIC.
+```{r}
+ols_AIC <- step(ols, trace = FALSE)
+```
+Somewhat surprisingly, the `step` function only drops a few predictors,
+namely:
+```{r}
+setdiff(names(coef(ols)), names(coef(ols_AIC)))
+```
+
+Get the preditions
+```{r}
+y_hat_AIC <- predict(ols_AIC, newdata = testing)
+```
+
+We could then try lasso:
+```{r}
+enetGrid <- expand.grid(.lambda = seq(.05, 1, length = 10),
+                        .fraction = seq(.05, 1, length = 10))
+lasso <- train(formula(ols), data = training, method = "enet", 
+               trControl = ctrl, tuneGrid = enetGrid)
+y_hat_lasso <- predict(lasso, newdata = testing)
+```
+
+Then PLS
+```{r}
+PLS <- train(formula(ols), data = training, method = "pls", 
+             tuneLength = 20, trControl = ctrl)
+y_hat_PLS <- predict(PLS, newdata = testing)
+```
+
+To summarize, 
+```{r}
+defaultSummary(data.frame(obs = testing$totalprice, pred = y_hat_OLS))
+defaultSummary(data.frame(obs = testing$totalprice, pred = y_hat_AIC))
+defaultSummary(data.frame(obs = testing$totalprice, pred = y_hat_lasso))
+defaultSummary(data.frame(obs = testing$totalprice, pred = y_hat_PLS))
+```

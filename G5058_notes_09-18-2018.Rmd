@@ -1,0 +1,566 @@
+---
+title: "G5058 Week 03"
+author: "Ben Goodrich"
+date: "September 18, 2017"
+output: html_document
+---
+
+# CampusWire
+
+If you have not already done so, go to
+https://campuswire.com/p/G8F62DF08
+and create an account using passcode 0010. Public questions and answers to conceptual
+questions count toward your the class participation portion of your grade. Through
+two weeks, most students have contributed literally nothing. Also, read the other
+threads before posting the same question.
+
+# Accessing the Course Server
+
+The QMSS has arranged for people enrolled in G5058 to access RStudio on an
+ISERP server. To do so, first ensure that you have a _strong_ password on
+your Columbia account
+https://cuit.columbia.edu/strong-passwords
+Moreover, it is advisible to enable Multifactor Authentication on all your
+Columbia logins
+https://cuit.columbia.edu/mfa
+
+Then, visit
+https://rstudio.qmss.columbia.edu
+and enter your _Columbia_ email address, using your UNI rather than any
+alias (involving your name) that you may have set up. After clicking on
+the icon that says "Sign into Columbia", you will be redirected to a
+Columbia webpage where you enter your UNI (i.e. without the `@columbia.edu`)
+and your aforementioned strong password. At that point, you should see a
+RStudio client within your webbrowser like you see when I present lecture
+material.
+
+Remember, to do the following once on the server:
+
+1. Click on __Tools -> Global Options__
+2. Uncheck the box that says "Restore .RData into workspace on startup"
+3. Change the drop-down menu that says "Save workspace to .RData on exit" to Never
+4. Click Apply
+5. Click OK
+
+This server is primarily intended to be a fallback in case the RStudio or
+necessary R packages are not working correctly locally on your laptop.
+However, it is also correctly configured to knit RMarkdown files to PDFs
+if you need that, rather than HTML. You may use this server for G5058 or
+any other course, including the QMSS thesis course. You may not use this
+server for "research", including RA work.
+
+If you need to upload files from your laptop to the server, use the **Upload**
+button under the **Files** tab in the bottom right plane. Conversely, if you
+need to download files from the server to your laptop, click on the checkbox
+to the left of the file you need, then click on the **More** drop-down menu 
+and then click **Export**.
+
+# Installing Packages
+
+If your laptop (or less likely the server) is missing a necessary R package, 
+you can install it (and their dependencies) by executing, for example,
+
+```{r, eval = FALSE}
+install.packages("beepr")
+```
+in the Console.
+
+This only needs to be done once per computer and calls to `install.packages`
+should NOT appear in RMarkdown or R script files because then they are 
+needlessly executed every time the commands are executed.
+
+# Coding Style
+
+You should get in the habit of writing R code with good and consistent style. 
+Consequently, homework will be marked off for poor and / or inconsistent style.
+See Wickham (http://adv-r.had.co.nz/Style.html) for a style guide,
+which we will now walk through.
+
+# Data Structures in R
+
+Data in R can take a variety of forms, Wickham's other book includes the following table
+
+Dimensions   | Homogenous       | Heterogeneous
+-- | ---------------- | -------------
+1d | atomic `vector`  | `list`
+2d | `matrix`         | `data.frame`
+nd | `array`          |
+
+There are no "scalars" in R but you can have a `vector` of length one, which may or may
+not be numeric.
+
+The `str` function is useful for understanding the structure of an object
+```{r str}
+data("USJudgeRatings")
+str(USJudgeRatings)
+```
+and the same information is available by clicking on the arrow icon to the left of the
+object in the Environment tab in the top right.
+
+## The `vector`
+
+A `vector` in R has three important components
+
+1. Its type, which is given by the `typeof` function
+2. Its length, which is given by the `length` function
+3. Its attributes, which are metadata given by the `attributes` function
+
+A vector is usually one of four types
+
+1. numeric, which is to say double-precision real
+2. integer, which is a signed integer
+3. character, which is anything in quotation marks
+4. logical, which is `TRUE` or `FALSE`
+
+We can use the `c()` function to create a `vector`
+```{r}
+num <- c(3.5, 10)           # intermediate flexibility
+int <- c(-2L, 4L)           # intermediate flexibility
+char <- c("hello", "world") # most flexible
+logic <- c(TRUE, FALSE)     # least flexible
+```
+But any vector can also have `NA` to indicate a missing value. Each of the four
+main types of vectors can be tested with the corresponding `is.*` function
+```{r test_vector}
+is.numeric(num)
+is.integer(int)
+is.character(char)
+is.logical(logic)
+is.character(logic)
+```
+There are also `as.*` functions that can be used to coerce a vector to another
+type of vector
+```{r coercion}
+as.numeric(int)
+as.integer(num)
+as.character(num)
+as.logical(char)
+```
+
+### The `factor`
+
+A `factor` is essentially a special kind of vector that is used to represent
+categorical data. R is much stricter about categorical data than most other 
+statistical programs, which many people find pedantic but only because they 
+have not thought about such things carefully. A factor defines a correspondence
+between integer codes and their descriptive labels and is usually created by
+the `factor` function, such as
+```{r}
+religion <- factor(c(1, 1, 2, 1, 3, 1, 1, 1, 4), levels = 1 : 4, 
+                  labels = c("Christian", "Jewish", "Muslim", "Other"))
+levels(religion)
+```
+This can be used if you have data on individuals' religions where there are
+four possible values. We tend to think of religions as being unordered, but
+some factors have an unambiguous order such as
+```{r}
+approval <- factor(c(1, 3, 2, 2, 3, 1), levels = 1 : 3, 
+                   labels = c("Disapprove", "Neutral", "Approve"), ordered = TRUE)
+nlevels(approval)
+```
+Be aware that if you do not specify the `levels` and `labels` arguments, R will
+use alpha-numerical ordering of the categories, regardless of whether `ordered = TRUE`
+and alpha-numerical categories are often arbitrary.
+
+## The `matrix` and the `array`
+
+A `matrix` is a collection of vectors that have the same length. Again, you
+can have a matrix whose elements are characters, in which case linear algebra
+operations will not work. The usual way to create a matrix is with the `matrix()`
+function, such as
+```{r}
+mat <- matrix(1 : 6, nrow = 3, ncol = 2)
+mat
+```
+There are three important functions for checking the dimensionality of a `matrix`
+```{r}
+dim(mat)
+nrow(mat)
+ncol(mat)
+is.matrix(mat)
+```
+You can also create a matrix by binding vectors, either column-wise or row-wise
+using the `cbind()` and `rbind()` functions respectively, as in
+```{r}
+mat <- cbind(6 : 4, 3 : 1)
+mat
+mat <- rbind(1 : 2, 3 : 4, 5 : 6)
+mat
+```
+This last matrix could also be created simply by specifying `byrow = TRUE`
+in the call to the `matrix()` function:
+```{r}
+mat <- matrix(1 : 6, nrow = 3, ncol = 2, byrow = TRUE)
+mat
+```
+An `array` is essentially a multidimensional generalization of vectors
+and matrices (but without linear algebra operations). Conversely, a vector is 
+a one-dimensional array and a matrix is a two-dimensional array. Arrays are 
+typically created with the `array()` function, as in
+```{r}
+arr <- array(1 : 24, dim = c(4, 2, 3)) # 4 rows, 2 columns, 3 shelves
+arr
+dim(arr)
+nrow(arr)
+ncol(arr)
+is.matrix(arr)
+is.array(arr)
+```
+
+## The `list`
+
+A `list` is a container of containers and its elements need not be of the
+same type. Thus, this is a list containing a vector, a factor, a matrix, and 
+an array that we created above
+```{r}
+lst <- list(logic, approval, mat, arr)
+is.list(lst)
+length(lst)
+```
+A `list` can contain another `list` as one of its elements. A `list` can have
+named elements, although this one currently does not
+```{r}
+names(lst)
+```
+So, we can assign the names as follows
+```{r}
+names(lst) <- c("first", "second", "third", "fourth")
+```
+but we could use any character vector of length $4$ for the names. Many R functions
+return a `list` in order to hold heterogenous information.
+
+## The `data.frame`
+
+A `data.frame` is a special case of a `list` where every list element has the
+same length. Thus, a `data.frame` resembles a matrix conceptually but unlike
+a `matrix` in R, the "columns" of a `data.frame` need not be the same type.
+Here is a `data.frame` of heterogenous vectors
+```{r}
+df <- data.frame(num, char, logic)
+is.data.frame(df)
+dim(df) # 2 rows, 3 columns
+df
+```
+Thus, a `data.frame` can also accomodate a mix of factors and numeric data,
+which is customary for datasets in the social sciences. When you read data into
+R, the output of the function will usually be a `data.frame`.
+
+You can inspect the column (or row names) of a `data.frame` with
+```{r}
+colnames(df)
+rownames(df)
+```
+and these can have a character vector assigned to them, such as
+```{r}
+rownames(df) <- c("one", "two")
+rownames(df)
+```
+You can coerce a `matrix` into a `data.frame` (and vice versa)
+```{r, eval=FALSE}
+df <- as.data.frame(mat)
+```
+Like a `matrix`, it is possible to use the `cbind` or `rbind` function to
+bind two `data.frame`s together by column or by row respectively.
+
+# The `tibble`
+
+Wickham has a new R package called __tibble__ that introduces a new type
+of object, also called a `tibble` that behaves pretty much like a 
+`data.frame` but avoids some of the ideosyncracies of `data.frame`s.
+
+A `tibble`, which is defined in the _tibble_ package is mostly compatible with a 
+`data.frame` but eliminates some characteristics of `data.frame`s that Wickham
+considers outdated and / or quirky. One can be created by calling `tibble()` or
+equivalently `data_frame` after having loaded the **tibble** package or a package
+that imports the **tibble** package:
+```{r}
+library(tibble)
+as_tibble(iris)
+my_tibble <- tibble(
+  x = 1:5, 
+  y = 1, 
+  z = x ^ 2 + y
+)
+```
+
+A `tribble` is essentially a transposed `tibble` that is perhaps useful for
+manual data entry.
+
+# Functions for Reading and Writing data
+
+R can read data from and write data to a variety of formats. The simplest format
+is delimited text, whether locally on your hard-disk or from a URL. However, R
+by default cannot read data from password-protected URLs so it is necessary in those
+cases to first download the data to your local hard-disk.
+
+For example, you can write a `data.frame` to the working directory on your hard disk
+by executing
+```{r, message = FALSE}
+library(readr)
+write_csv(USJudgeRatings, path = "USJudgeRatings.csv")
+```
+which will save it in so-called "comma-delimited" format.
+
+RStudio has a dedicated mechanism for reading delimited text that can be accessed
+by clicking __File -> Import Dataset__. There will be several options in the
+wizard, which I will show now
+
+When everything is set, click the __Import__ button and the resulting `tibble` 
+will be created in R's workspace. RStudio will also call its `View()` function on 
+that `tibble` by default. At this point, it is _very_ important that you look in the 
+__Console__ panel of RStudio to see the command that has been piped in. Copy and
+paste this line into your .R or .Rmd file so that when you `source` or `knit` it, 
+your data will be imported programatically rather than you having to manually go 
+through the wizard again. But _do_ edit the line so that it refers to a _relative_ 
+path rather than an absolute path. This line could involve the `readr::read_csv` 
+function, which is the underlying functions behind the wizard and 
+offer some additional arguments that are rarely-used but occassionally essential.
+
+Sometimes, you will be faced with a file of data that is not delimited by any 
+particular character but rather comes with an index file that says how many
+characters each variable contains. This format is called "fixed width" and can
+be imported into R with the `read_fwf` function. This function might be called
+with something like
+```{r, eval=FALSE}
+dataset <- read_fwf(file = file.path("relative", "path", "to", "dataset.txt"),
+                    col_positions = c(2, 5, 3, 1, 1, 4))
+```
+which tells R to look on your disk for a file at `C:\path\to\my\datset.txt` on 
+Windows or `/path/to/my/dataset.txt` on anything but Windows with six variables of
+width 2, 5, 3, 1, 1, and 4 characters respectively that has variable names in
+the first row. If successful, a `tibble` called `dataset` (which is poorly
+named) will be created in R's workspace.
+
+Objects in R's workspace can be written in a binary format to your hard-disk using 
+the `save` function, whose first few arguments are the names of the objects that 
+you want to save and also takes a required `file` argument that specifies the relative
+path to save them collectively to. By convention, such files end with an .RData 
+extension.
+```{r}
+sewage <- haven::read_dta("http://www.stata-press.com/data/r14/sewage.dta")
+save(sewage, df, file = "sewage.RData")
+```
+
+This file can be read into R with `load(file = "sewage.RData")`, in which case the
+`sewage` and `df` objects will exist in R's workspace even if they were created in a 
+different R session (or on a different computer). Clicking __Session->Load Workspace__
+allows you to find the .RData file with a GUI and then calls `load`. But remember to
+edit what appears in the Console to refer to a relative path after pasting that line
+into an R script in the Editor panel.
+
+A better approach to saving particular R objects is to do
+```{r}
+saveRDS(sewage, file = "sewage.rds")
+```
+in which case you can subsequently call `readRDS("sewage.rds")` and assign the result
+to any symbol you want.
+
+# Subsetting R Objects
+
+If you have one of the containers discussed earlier,
+then you can subset them using expressions within brackets.
+
+* By position, with an integer (vector)
+    ```{r}
+    letters[4]
+    letters[c(1,5,9,15,21)]
+    ```
+* Conversely, you can obtain all elements except those specified with a 
+  negative integer (vector)
+    ```{r}
+    letters[-4]
+    letters[c(-2,-5)]
+    ```
+* With a logical vector of the same length as the object being subsetted
+    ```{r}
+    char[logic]
+    char[!logic]
+    ```
+* By name, with a character (vector). In the case of a matrix(-like) object,
+  you can subset on either the rownames, the columnnames, or both, as in:
+    ```{r}
+    state.x77["New York", ]
+    state.x77[ , c("Population", "Murder")]
+    state.x77["New York", c("Population", "Murder")]
+    ```
+    However, a `tibble` does not have rownames.
+
+In the case of a list(-like) object, there are three ways to subset
+
+1. With "single brackets", the result is a shorter list
+    ```{r}
+    lst[2:3]
+    ```
+2. With "double brackets", the result is the corresponding list element
+    ```{r}
+    lst[[1]]
+    ```
+3. With the dollar sign, the result is the list element with that name
+    ```{r}
+    USJudgeRatings$PHYS
+    ```
+The dollar sign notation is particularly useful in the R Console because you can 
+type the first few letters of the element name and then press the Tab key to 
+show the possible completions if you do not remember how to spell the element
+name exactly.
+
+In all of these cases, it is also possible to assign to a subset of a container.
+For example,
+```{r}
+char[2] <- "Newman"
+df$char <- char
+df[ ,"char"]
+```
+
+To review,
+
+* Parentheses, `()`, are used in two very different situations:
+    * Grouping in mathematical expressions, such as
+    ```{r}
+    (2 + 3) * 4
+    ```
+    * Function calls, such as
+    ```{r}
+    log(10)
+    ```
+* Braces, `{}`, are used in two similar situations:
+    * Function definitions
+    ```{r}
+    sinc <- function(x) {
+      return(ifelse(x == 0, 1, sin(x) / x))
+    }
+    ```
+    * Control flow expressions such as `if`, `else`, `for`, `while`, etc.
+    ```{r}
+    counter <- 1
+    while(counter <= 3) {
+      print(paste("counter is", counter))
+      counter <- counter + 1
+    }
+    ```
+* Brackets, `[]`, are used for subsetting, as in
+    ```{r, eval = FALSE}
+    x[1]
+    mean(x[x > 0])
+    ```
+An example that illustrates most of these constructions simultaneously is
+```{r, eval = FALSE}
+len <- length(x)
+sinc_values <- rep(NA_real_, len)
+for(i in 1:len) {
+  if(x[i] == 0) {
+    sinc_values[i] <- 1
+  }
+  else {
+    sinc_values[i] <- sin(x[i]) / x[i]
+  }
+}
+```
+
+# Functions
+
+As with everything in R, functions are objects. But functions are arguably the most important
+kind of object in a language like R. Non-primitive functions have three important parts
+
+1. The `body`, which executes assignment statements using culminating in a call to `return`
+2. The `formals`, which are the arguments to the function
+3. The `environment`, which is the location in R's memory where the function is evaluated
+
+For example,
+```{r}
+f <- function(x) x^2
+body(f)
+formals(f)
+environment(f)
+```
+
+It is considered poor form in this class to define functions that rely on 
+objects that are neither passed to the function as arguments or created inside the
+function. In other words, a function typically should not utilize objects in its
+environment.
+
+Function arguments are matched
+
+1. by exact name
+2. by partial name
+3. by position
+
+in that order. However, using a partial name is discouraged and matching by position is
+subject to subtle errors. Therefore, it is preferable to use exact names, except for
+perhaps the first argument to a function. For example,
+```{r}
+round(x = 2.3, digits = 0) # good
+round(2.3, digits = 0) # acceptable
+round(2.3, dig = 0) # stupid
+round(2.3, 0) # hard to understand
+round(2.3) # acceptable because the default value for digits is zero
+```
+Many R functions have default arguments that are used if the argument is not
+specified explicitly. It is generally good practice to not specify default
+arguments if you do not want to change their values. Consequently, when
+you see an argument specified, it is clear that the programmer's intent
+is to depart from the default value
+```{r}
+round(2.34)
+round(2.34, digits = 1)
+```
+You can use the `do.call` function to call a function by passing in a 
+list of its arguments, such as
+```{r}
+do.call(mean, args = list(x = rnorm(10), trim = 0.1))
+```
+Finally, many R functions have `...` in their arguments, such as
+```{r}
+args(mean)
+args(mean.default)
+```
+This means that any additional arguments that are passed to the `mean`
+function besides `x` are passed along to any function that the `mean`
+function might subsequently call. For example, if `mean` receives a
+numeric `vector` for its `x` argument, the `mean` function will call the
+`mean.default` function that has two additional arguments `trim` (with
+a default of `0`) and `na.rm` (with a default of `FALSE`). This implies,
+by default, that R will calculate an untrimmed mean and will not remove
+any missing values (which will cause `mean` to return `NA`). But if we
+pass `na.rm = TRUE` to the `mean` function, it will capture that argument
+in its `...` and pass that along to `mean.default`, which will then calculate
+the sample mean excluding any `NA` values. In code,
+```{r}
+vals <- c(2, 5, NA)
+mean(vals) # NA
+mean(vals, na.rm = TRUE)
+```
+
+The part about R that students find the most confusing is that an R function
+function with named arguments just uses those names internally and for
+documentation. They have essentially nothing to do with what names you have used
+to bind results to. For example, you might assume that the following would work,
+since `x` is the name of the first argument of the `round` function:
+```{r, eval=FALSE}
+x <- 5.1
+round() # yields an error
+```
+but in fact, it produces an error message that in essence says that R does not
+know what you want it to round. In contrast, this does work
+```{r}
+x <- 5.1
+round(x = 7/2) # x is merely the internal symbol that 7/2 is bound to
+x # x is still bound to 5 outside the round() function
+round(x) # specifing by position
+round(x = x) # specifying by name
+```
+This is why it is considered unacceptable in G5058 to use the "single equals"
+sign for assignment, even though it is technically legal in R and obligatory
+in many other languages like C++. In R, `<-` should be used to assign a symbol
+to something and `=` should be used to specify function arguments by name.
+
+# Swirl
+
+The __swirl__ package is good for learning R. It asks you questions and gives you a prompt
+where you can type your answer.
+
+```{r, eval=FALSE}
+library(swirl)
+swirl()
+```
+
