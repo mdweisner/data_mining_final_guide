@@ -1,0 +1,7 @@
+---
+title: "Data Mining Final Study Guide"
+author: "Michael Weisner"
+date: "12/13/2018"
+output: html_document
+---
+

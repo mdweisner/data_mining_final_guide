@@ -1,0 +1,40 @@
+---
+title: "Midterm Cheatsheet"
+author: "Michael Weisner"
+date: "October 17, 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Week 1
+### Main Topics
++ Approaches & Uncertainty
++ Supervised Learning: $Y ≈ f(X)$ where X and Y are observable (supervised)
++ Prediction vs Inference (data mining better at prediction, not understanding relationship to changes in X)
++ Parametric (f(X) is known) vs Nonparametric (f(X) can be approximated)
++ Training (observations to develop predictions) vs Testing Data (observations to predict)
++ Least Squares (OLS regression) - Low variance high bias
++ Nearest NEighbors ($X_i∈N_k(X)$) meaning the k observations are in a neighborhood of x - high bvariance low bias
+
+## Week 2 & 3
+### Main Topics
+R Overview
+Good R practices (look at function writing for examples, or )
+Data Structures in R:
++ vectors (num, int, char, or logic)
++ factors (special vectors with categorical data)
++ matrices & arrays (matrices are a collection of vectors that have the same length, arrays are multidimensional collections of vectors/matrices) Remember: you can only do linear algebra on numeric matrices, not arrays or character matrices.
++ list (container of containers, doesn't need same type of data)
++ data.frame (default R format for tables, like a special matrix/list where columns can be different types)
++ tibbles (special data.table that doesn't have row names, and has special print/sort functions)
+
+Helpful Commands:
++ `dim()` get dimensions of `data.frame`
++ `str()` to get information about structure
+
+## Assignment 1
+
+

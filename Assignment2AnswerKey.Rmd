@@ -1,0 +1,279 @@
+---
+title: "G5058 Assignment 2 Answer Key"
+author: "Ben Goodrich"
+date: "October 9, 2018"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r include=FALSE}
+set.seed(12345)
+```
+
+
+# Linear Algebra
+
+## Question 2 on page 301 of Moore and Siegel
+
+a) $\mathbf{A}=\begin{bmatrix}0 & 1 & 5\\
+1 & -2 & -1\\
+5 & -1 & 2
+\end{bmatrix}$ is a square and symmetric matrix 
+
+b) $\mathbf{B}=\begin{bmatrix}1 & 0 & 0\\
+0 & 1 & 0\\
+0 & 0 & 1
+\end{bmatrix}$ is a square, symmetric, diagonal, both upper and lower triangular 
+and consequently, the identity matrix.
+
+c) $\mathbf{C}=\begin{bmatrix}1 & 1\\
+3 & -2
+\end{bmatrix}$ is a square matrix.
+
+d) $\mathbf{D}=\begin{bmatrix}0 & 1 & 2\\
+5 & 1 & -1\\
+2 & 4 & 0\\
+1 & 1 & 0
+\end{bmatrix}$ is just a matrix without any special structure.
+
+## Question 4 on page 301 of Moore and Siegel
+
+```{r}
+A <- rbind(c(5, 1, 2), 
+           c(6, 2, 3))
+B <- matrix(c(3:5, -2, -3, 6), nrow = 2, ncol = 3, byrow = TRUE)
+C <- cbind(c(1, -5, -3), c(2, 3, 1))
+D <- matrix(c(2, 4, 1, 3), nrow = 2, ncol = 2)
+```
+a) 
+```{r}
+try(A + C)
+```
+b)
+```{r}
+A - B
+```
+c)
+```{r}
+A + 5 * B
+```
+d)
+```{r}
+3 * A
+```
+e)
+```{r}
+2 * B - 5 * A
+```
+f)
+```{r}
+t(B) - C
+```
+g)
+```{r}
+try(B %*% A)
+```
+h)
+```{r}
+D %*% A
+```
+i)
+```{r}
+try(A %*% D)
+```
+j)
+```{r}
+C %*% D
+```
+k)
+```{r}
+B %*% C
+```
+l)
+```{r}
+C %*% B
+```
+
+# Matrix Inverses
+
+The question does not require you to use R, but you can convince yourself
+whether the statement is true or false but creating matrices and vectors
+using _random_ or at least irrational or prime numbers:
+```{r}
+K <- 7L
+W <- matrix(rnorm(K^2), nrow = K, ncol = K)
+x <- sqrt(c(2, 3, 5, 7, 11, 13, 17))
+y <- 1:K
+
+W_inv <- solve(W)
+num <- W_inv %*% tcrossprod(x, y) %*% W_inv
+den <- 1 + t(y) %*% W_inv %*% x 
+is.matrix(den) # TRUE, i.e. 1x1
+all.equal(solve(W + tcrossprod(x, y)), W_inv - num / den[1])
+```
+
+However, to completely answer a question such as this, you need to use matrix
+algebra to show that the equation is true generically. To do so, we need to
+multiply $\mathbf{W} + \mathbf{x}\mathbf{y}^\top$ by 
+$\mathbf{W}^{-1} - \frac{\mathbf{W}^{-1} \mathbf{x}\mathbf{y}^\top \mathbf{W}^{-1}}
+                        {1 + \mathbf{y}^\top \mathbf{W}^{-1} \mathbf{x}}$
+and show that it is equal to the identity matrix. First, recall the definition
+of an inverse of a matrix, which is the (square) matrix that when multiplied by the 
+original (square) matrix yields the identity matrix. So, we multiply the right-hand
+side of the proposed equation by the original matrix.
+$$\left(\mathbf{W} + \mathbf{x}\mathbf{y}^\top\right)
+  \left(\mathbf{W}^{-1} - \frac{\mathbf{W}^{-1} \mathbf{x}\mathbf{y}^\top \mathbf{W}^{-1}}
+                               {1 + \mathbf{y}^\top \mathbf{W}^{-1} \mathbf{x}}\right)$$,
+so we can then use the hint about the distributive property to get                            
+$$  = \mathbf{W} \mathbf{W}^{-1} - 
+    \frac{\mathbf{W} \mathbf{W}^{-1} \mathbf{x}\mathbf{y}^\top \mathbf{W}^{-1}}
+         {1 + \mathbf{y}^\top \mathbf{W}^{-1} \mathbf{x}} + 
+  \mathbf{x}\mathbf{y}^\top \mathbf{W}^{-1} - 
+    \frac{\mathbf{x}\mathbf{y}^\top \mathbf{W}^{-1} \mathbf{x}\mathbf{y}^\top \mathbf{W}^{-1}}
+         {1 + \mathbf{y}^\top \mathbf{W}^{-1} \mathbf{x}} = $$
+$$  \mathbf{I} - \frac{\mathbf{I} \mathbf{x}\mathbf{y}^\top \mathbf{W}^{-1}}
+                    {1 + \mathbf{y}^\top \mathbf{W}^{-1} \mathbf{x}} +
+  \mathbf{x}\mathbf{y}^\top \mathbf{W}^{-1} -
+    \frac{\mathbf{x}\mathbf{y}^\top \mathbf{W}^{-1} \mathbf{x}\mathbf{y}^\top \mathbf{W}^{-1}}  
+         {1 + \mathbf{y}^\top \mathbf{W}^{-1} \mathbf{x}}$$
+Then, we factor the numerator to show the scalar term cancels with the denominator         
+$$  \mathbf{I} + \mathbf{x}\mathbf{y}^\top \mathbf{W}^{-1} - 
+    \frac{\mathbf{x}\mathbf{y}^\top \mathbf{W}^{-1} + 
+          \mathbf{x}\mathbf{y}^\top \mathbf{W}^{-1} \mathbf{x}\mathbf{y}^\top \mathbf{W}^{-1}}
+         {1 + \mathbf{y}^\top \mathbf{W}^{-1} \mathbf{x}} = $$
+$$  \mathbf{I} + \mathbf{x}\mathbf{y}^\top \mathbf{W}^{-1} - 
+    \frac{\mathbf{x}\left(1 + \mathbf{y}^\top \mathbf{W}^{-1} \mathbf{x}\right) 
+          \mathbf{y}^\top \mathbf{W}^{-1}}
+         {1 + \mathbf{y}^\top \mathbf{W}^{-1} \mathbf{x}} = $$
+$$  \mathbf{I} + \mathbf{x}\mathbf{y}^\top \mathbf{W}^{-1} - \mathbf{x}\mathbf{y}^\top \mathbf{W}^{-1} =
+  \mathbf{I}$$
+ultimately leaving the identity matrix.
+
+This theorem, which is known as the Sherman-Morrison theorem, is particularly useful when 
+$\mathbf{W}$ is easy to invert, such as when it is diagonal or otherwise triangular.
+
+# Stratifying
+
+Calculate the mean and median of the difference between _wtdesire_ and _weight_ for each of the subgroup defined by the intersection of these two conditioning variables. What do you conclude from the results?
+
+We download the data and use the dplyr package
+```{r, message = FALSE}
+cdc <- read.csv("https://www.openintro.org/stat/data/cdc.csv")
+library(dplyr)
+```
+
+1) 'hlthplan' and 'gender'
+```{r}
+group_by(cdc, hlthplan, gender) %>% 
+  summarize(average_difference = mean(wtdesire - weight, na.rm = TRUE),
+            median_difference = median(wtdesire - weight, na.rm = TRUE))
+```
+
+2) 'smoke100' and 'genhlth'
+```{r}
+group_by(cdc, smoke100, genhlth) %>%
+  summarize(average_difference = mean(wtdesire - weight, na.rm = TRUE),
+            median_difference = median(wtdesire - weight, na.rm = TRUE))
+```
+
+3) 'gender' and 'smoke100'
+```{r}
+group_by(cdc, gender, smoke100) %>%
+  summarize(average_difference = mean(wtdesire - weight, na.rm = TRUE),
+            median_difference = median(wtdesire - weight, na.rm = TRUE))
+```
+
+4) 'genhlth' and 'exerany' 
+```{r}
+group_by(cdc, genhlth, exerany) %>%
+  summarize(average_difference = mean(wtdesire - weight, na.rm = TRUE),
+            median_difference = median(wtdesire - weight, na.rm = TRUE))
+```
+
+5) 'hlthplan' and 'genhlth'
+```{r}
+group_by(cdc, hlthplan, genhlth) %>%
+  summarize(average_difference = mean(wtdesire - weight, na.rm = TRUE),
+            median_difference = median(wtdesire - weight, na.rm = TRUE))
+```
+
+# Apartment Prices
+
+```{r, message = FALSE}
+apts <- readRDS(gzcon(url('https://courseworks.columbia.edu/x/pJdP39')))
+apts$toilets <- as.factor(apts$toilets)
+apts$storage <- as.factor(apts$storage)
+library(ggplot2)
+ggplot(apts) + 
+  geom_point(aes(x = area, y = totalprice / 1000, 
+                 col = rooms, shape = toilets, 
+                 size = storage)) + 
+  geom_smooth(aes(x = area, y = totalprice / 1000), colour = "red", se = FALSE) +
+  xlab("Area (square meters)") + ylab("Price (in 1,000 Euros)")
+```
+
+There is an essentially linear, positive relationship between area and price. The
+number of toilets, rooms, and storeage rooms seem to account for relatively little
+of the variation in price, although they are presumably positively associated with
+the area.
+
+# Making plots
+
+## chickwts
+
+```{r}
+data("chickwts")
+ggplot(chickwts) + geom_boxplot(aes(x = feed, y = weight))
+```
+
+- Sunflower presents the smallest IQR and has three outliers.
+- Casein and sunflower present the closest medians.
+- Chicken weight gain by feed can be ranked as casein, sunflower, meatmeal, soybean, linseed and horsebean, from the heaviest to the lightest. 
+- Chicken fed by sunflower and horsebean had a smaller range than others, and chicken fed by casein had the largest range, while chicken fed by meatmeal, soybean and linseed had a medium range. 
+- For median, weight of chicken fed by soybean, sunflower, casein and linseed were skewed to the right, which indicated that most of data were larger than median. Weight of chicken fed by meatmeal and horsebean were skewed to the left, which indicated that most of data were smaller than median.
+- Weight of chicken fed by sunflower had three outliers, one smaller than average and two larger than average. Other kinds of feed did not produce outliers.
+
+
+## iris
+
+```{r}
+data("iris")
+ggplot(iris) + geom_boxplot(aes(x = Species, y = Petal.Length)) + ylab("Petal Length")
+```
+
+- The three species of flowers show  different median values in IQR for the
+length of their petals. The shortest petals are observed in the case of the 
+'setosas'. Both 'setosas' and 'versicolor' species show an outlier that is
+smaller in petal length compared to most of the cases included in the data set.
+
+## faithful
+
+```{r}
+data("faithful")
+ggplot(faithful) + geom_histogram(aes(x = eruptions)) + 
+  xlab("Eruption time in minutes")
+```
+
+- Eruption time presents a bimodal distribution, with some eruptions lasting
+  approximately 2 minutes and others lasting around 4.5 minutes, on average.
+  This second group of eruptions lasting between four and five minuts 
+  concentrates most of the cases recorded in the data set. Moreover, very
+  few explossions last more than five minutes.
+
+# Histograms
+
+```{r, message = FALSE}
+data("Cars93", package = "MASS")
+ggplot(Cars93) + geom_histogram(aes(x = Min.Price)) + xlab("Minimum price")
+ggplot(Cars93) + geom_histogram(aes(x = Max.Price)) + xlab("Maximum price")
+ggplot(Cars93) + geom_histogram(aes(x = Weight))
+ggplot(Cars93) + geom_histogram(aes(x = Length))
+ggplot(Cars93) + geom_histogram(aes(x = Price)) + facet_wrap(~ DriveTrain)
+```
+
+- There are a lot more front wheel drive cars in this dataset
+- Front wheel drive cars tend to be cheap but can occasionally range up to $40,000 giving a bit of skew 
+  to the distribution
+- Four wheel drive cars tend to be cheap and are more symmetrical around the mean / median
+- Rear wheel drive cars can be cheap but have a few outliers up to $60,000

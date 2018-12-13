@@ -1,0 +1,221 @@
+---
+title: "GR5058 Assignment 4 Answer Key"
+author: "Ben Goodrich"
+date: "December 4, 2018"
+output: html_document
+---
+
+```{r include=FALSE}
+set.seed(12345)
+library(doMC)
+registerDoMC(parallel::detectCores())
+```
+
+# Smooth Nonlinear Models for a Continuous Outcome
+
+## Part A
+
+First, we split the data into training and testing
+```{r, message = FALSE}
+library(caret)
+data(College, package = "ISLR")
+in_train <- createDataPartition(College$Outstate, p = 3 / 4, list = FALSE)
+training <- College[in_train, ]
+testing <- College[-in_train, ]
+```
+
+## Part B
+
+```{r}
+mod1_train <- lm(Outstate ~ (.)^2 + I(Apps^2) + I(Accept^2) + I(Enroll^2) + I(Top10perc^2) + 
+                   I(Top25perc^2) + I(F.Undergrad^2) + I(P.Undergrad^2) + I(Room.Board^2) + 
+                   I(Books^2) + I(Personal^2) + I(PhD^2) + I(Terminal^2) + I(S.F.Ratio^2) + 
+                   I(perc.alumni^2) + I(Expend^2) + I(Grad.Rate^2), data = training)
+
+# stepwise search gets rid of a lot of the interactions
+mod1_AIC <- step(mod1_train, trace = FALSE)
+names(coef(mod1_AIC))
+
+Yhat_mod1AIC <- predict(mod1_AIC, newdata = testing)
+
+defaultSummary(data.frame(obs = testing$Outstate, pred = Yhat_mod1AIC))
+```   
+
+## Part C
+
+```{r}
+ctrl <- trainControl(method = "cv", number = 10)
+GAM_grid <- data.frame(df = 1:10)
+fit <- train(Outstate ~ Apps + Accept + Enroll + Top10perc + 
+              Top25perc + F.Undergrad + P.Undergrad + Room.Board + 
+              Books + Personal + PhD + Terminal + S.F.Ratio + 
+              perc.alumni + Expend + Grad.Rate, data = training,
+             method = "gamSpline", tuneControl = ctrl, tuneGrid = GAM_grid)
+# Plots
+plot(fit$finalModel, se = FALSE, residuals = TRUE, pch = ".", las = 1, rug = FALSE)
+```
+
+These plots tell us how each spline function changes as the corresponding
+predictor changes. The curvature of each spline function is estimated in
+order to fit the (training) data, so the partial residuals are also shown 
+as small points to get a sense of how well the model fits.
+
+## Part D
+
+* `Room.Board`
+* `Personal`
+* `Expend`
+
+There are some other non-linear looking plots, but these are mostly just
+driven by one or two outliers (which GAMs are very sensitive to)
+
+## Part E
+
+```{r}
+Yhat_gam <- predict(fit, newdata = testing)
+defaultSummary(data.frame(obs = testing$Outstate, pred = Yhat_gam))
+```
+
+The average SSR is smaller in testing data for the GAM model than the linear
+model, although not by that much because the estimated relationships are not
+that non-linear. GAMs will almost always overfit the training data to some extent, 
+so it is especially important to utilize the testing data to choose among different 
+specifications.
+
+# Fused Lasso Additive Model
+
+The setup of a Fused Lasso Additive Model is similar to that of a Generalized
+Additive Model
+$$y = \sum_{j=1}^p{f_j\left(x_{ij}\right)}$$
+where each $f_j$ is an unknown function. Unlike `gam::gam` the Fused Lasso
+Additive Model adds a lasso-style penalty on the coefficients so that the
+minimization problem chooses a scalar $\left(\theta_0\right)$ and $p$ vectors of length 
+$N$ to minimize
+
+$$\frac{1}{2}r\left(\boldsymbol{\theta}\right)^\top r\left(\boldsymbol{\theta}\right) + 
+\alpha \lambda \sum_{i=1}^N \sum_{j=1}^p{|\mathbf{D}\mathbf{P}_j\boldsymbol{\theta}_j}|_i + 
+\left(1 - \alpha\right) \lambda \sum_{j=1}^p{\sqrt{\boldsymbol{\theta}_j^\top \boldsymbol{\theta}_j}}$$
+
+where 
+$$r\left(\boldsymbol{\theta}\right) = \mathbf{y} - \theta_0 \mathbf{1} - \sum_{j=1}^p{\boldsymbol{\theta_j}}$$
+is a residual vector, $\mathbf{D}$ is a matrix such that when it is post-multiplied by a vector
+the first difference of that vector is returned, and $\mathbf{P}_j$ is a permutation matrix
+such that when it is post-multiplied by a vector $\mathbf{x}_j$, the result is a vector that
+has been sorrted from smallest to largest. The penalization parameters 
+$\alpha \in \left[0,1\right]$ and $\lambda \geq 0$ encourage the parameters to be zero and
+can be chosen by cross-validation.
+
+To apply the FLAM to the `College` data, we can do something like
+```{r}
+library(flam)
+X <- model.matrix(Outstate ~ . , data = training)
+fit <- flamCV(x = X, y = training$Outstate)
+yhat <- predict(fit$flam.out, 
+                new.x = model.matrix(Outstate ~ . , data = testing), 
+                lambda = fit$lambda.cv, alpha = fit$alpha)
+defaultSummary(data.frame(obs = testing$Outstate, pred = yhat))
+```
+FLAM is worse than GAM in this case.
+
+# Tree-Based Models for a Binary Outcome
+
+## Part A
+
+```{r}
+payback <- readRDS("payback.rds")
+payback$y <- factor(payback$y, levels = 0:1, labels = c("no", "yes"))
+payback$delinq_2yrs <- factor(payback$delinq_2yrs, 
+                              levels = 0:1, labels = c("no", "yes"))
+payback$zip_code <- NULL
+payback$addr_state <- NULL
+```
+
+```{r, include = FALSE}
+payback <- na.omit(payback[sample(1:nrow(payback), size = 20000, replace = FALSE), ])
+payback$home_ownership <- factor(payback$home_ownership)
+```
+
+
+```{r}
+in_train <- createDataPartition(payback$y, p = 3 / 4, list = FALSE)
+training <- payback[ in_train, ]
+testing  <- payback[-in_train, ]
+```
+
+## Part B
+
+```{r}
+logit <- glm(y ~ (.)^2 + I(loan_amnt^2) + I(int_rate^2) + 
+               I(installment^2) + I(emp_length^2) + I(annual_inc^2) + I(earliest_cr_line^2) + 
+               I(open_acc^2) + I(pub_rec^2) + I(revol_bal^2) + I(total_acc^2), 
+             data = training, family = binomial(link = "logit"))
+confusionMatrix(testing$y, 
+                factor(predict(logit, newdata = testing, type = "response") > 0.5,
+                       levels = c(FALSE, TRUE), labels = levels(testing$y)))
+```
+
+## Part C
+
+### Single Tree
+
+```{r, message = FALSE}
+single_tree <- train(y ~ ., data = training, method = "rpart",
+                     tuneLength = 10, na.action = na.omit)
+single_tree$finalModel
+confusionMatrix(testing$y, 
+                predict(single_tree, newdata = testing, na.action = na.pass))
+```
+
+### Random Forest
+
+```{r, RF, cache = TRUE}
+ctrl <- trainControl(method = "cv", number = 10)
+rf_grid <- data.frame(.mtry = 2:(ncol(training) - 1L))
+rf <- train(y ~ ., data = training,  method = "rf",
+            ntrees = 1000, trControl = ctrl,
+            na.action = na.omit)
+```
+```{r}
+confusionMatrix(testing$y, 
+                predict(rf, newdata = testing, na.action = na.pass))
+```
+
+
+### Bagging
+
+```{r}
+bag <- train(y ~ ., data = training, method = "treebag",
+             na.action = na.omit, trControl = ctrl)
+confusionMatrix(testing$y, 
+                predict(bag, newdata = testing, na.action = na.pass))
+```
+
+### Boosting
+
+```{r, gbm, cache = TRUE, warning = FALSE}
+gbm_grid <- expand.grid(.interaction.depth = seq(1, 7, by = 2),
+                        .n.trees = seq(100, 1000, by = 50),
+                        .shrinkage = c(0.01, 0.1),
+                        .n.minobsinnode = 5)
+boosted <- train(y ~ ., data = training, method = "gbm",
+                 trControl = ctrl, tuneGrid = gbm_grid,
+                 train.fraction = 0.9)
+confusionMatrix(testing$y, 
+                predict(boosted, newdata = testing, na.action = na.pass))
+```
+
+### BART
+
+```{r, BART, cache = TRUE, message = FALSE}
+library(BART)
+X_train <- data.matrix(training[ , -ncol(training)])
+X_test <- data.matrix(testing[ , -ncol(testing)])
+bart <- mc.pbart(X_train, training$y == "yes", X_test)
+confusionMatrix(testing$y, 
+                factor(bart$prob.test.mean > 0.5, levels = c(FALSE, TRUE),
+                       labels = levels(testing$y)))
+```
+
+So, both single tree and random forests achieved the highest overall 
+accuracy by predicting everyone in the testing data will pay back
+their loans on schedule.

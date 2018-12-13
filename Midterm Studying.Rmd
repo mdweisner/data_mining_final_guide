@@ -1,0 +1,332 @@
+```{r Important Packages}
+library(tidyverse)
+library(tidytext)
+library(gutenbergr)
+library(janeaustenr)
+library(wordcloud)
+library(tm)
+#library(qdap)
+library(topicmodels)
+library(text2vec)
+library(dplyr)
+library(nycflights13)
+library(ISLR)
+library(pcaPP)
+```
+```{r Important Functions}
+#prcomp(data, scale = TRUE)
+#PCAproj(data, scale = sd)
+
+#set.seed(put a number here)
+#kmeans(data, centers = number of clusters, nstart = a good number of tries to get the global minimum)
+
+# hc <- hclust(dist(USJudgeRatings), method = "single, complete or average")
+#plot(hc, main = "Complete Linkage", xlab = "", sub = "")
+```
+
+
+```{r}
+data("USJudgeRatings")
+rownames(USJudgeRatings) <- 1:nrow(USJudgeRatings)
+X <- scale(USJudgeRatings)
+```
+
+```{r}
+SVD <- svd(X)
+str(SVD)
+SVD$d <- round(SVD$d, digits = 3)
+SVD$d[7:12] <- 0
+X_ <- with(SVD, u %*% diag(d) %*% t(v))
+all.equal(X, X_, check.attributes = FALSE)
+```
+```{r}
+pr_out <- prcomp(USJudgeRatings, scale = TRUE)
+round(pr_out$center, digits = 3)
+round(pr_out$scale, digits = 3)
+round(pr_out$rotation, digits = 3)
+```
+```{r}
+round(crossprod(pr_out$rotation),3)
+```
+
+```{r}
+par(mar = c(5,4,3,3) + .1, las = 1, cex = 0.8)
+biplot(pr_out, scale = 0, ylim = c(-4, 2))
+```
+
+```{r}
+pr_var <- pr_out$sdev^2
+pve <- pr_var / sum(pr_var)
+pve
+```
+```{r}
+pve.frame <- as.data.frame(pve)
+gg <- ggplot(pve.frame, aes(x= 1:12, y=pve)) + geom_line() + geom_point()
+gg
+```
+```{r}
+plot(cumsum(pve), xlab = "Principal Component", 
+     ylab = "Cumulative Proportion of Variance Explained", ylim = 0:1, type = "b")
+```
+
+```{r}
+pr_out2 <- PCAproj(USJudgeRatings, scale = sd) # retains 2 PCs by default
+par(mar = c(5,4,3,3) + .1, las = 1, cex = 0.8)
+biplot(pr_out2, scale = 0)
+pr_out2$scores
+```
+```{r}
+
+variance <- pr_out2$sdev^2
+pve2 <- variance / sum(variance)
+1 - sum(pve2)
+```
+
+## K Means Clustering
+NEEDS A DATA FRAME
+```{r}
+set.seed(3238249)
+km_out <- kmeans(USJudgeRatings, centers = 2, nstart = 20)
+which(km_out$cluster == 2)
+```
+```{r}
+with(USJudgeRatings, plot(CONT, DECI, col = km_out$cluster + 1, pch = 20, 
+                          main = "K-Means Clustering Results with K = 2"))
+```
+
+```{r}
+hc_complete <- hclust(dist(USJudgeRatings), method = "complete")
+hc_average <- hclust(dist(USJudgeRatings), method = "average")
+hc_single <- hclust(dist(USJudgeRatings), method = "single")
+
+plot(hc_complete, main = "Complete Linkage", xlab = "", sub = "")
+```
+```{r}
+set.seed(100)
+dd <- as.dist(1 - cor(t(matrix(rnorm(30 * 3), ncol = 3))))
+plot(hclust(dd, method = "complete"),main = "Complete Linkage with Correlation-Based Distance")
+```
+
+Text Mining
+
+left_join keeps everything in first dataframe, right_join keeps everything in second, outer_join keeps both, inner_join keeps only matches and anti_join drops matches from first dataframe
+
+options for token: word, character, ngram, sentence, line, paragraph
+
+```{r}
+library(gutenbergr)
+hgwells <- gutenberg_download(c(35, 36, 5230, 159)) # Books by H.G. Wells
+tidy_hgwells <- hgwells %>%
+  unnest_tokens(word, text) %>%
+  anti_join(stop_words)
+```
+```{r}
+tidy_hgwells %>%
+  count(word, sort = TRUE) %>%
+  inner_join(sentiments)
+```
+
+```{r}
+get_sentiments("nrc")
+
+```
+```{r}
+sentiments
+```
+```{r}
+tidy_books <- austen_books() %>%
+  group_by(book) %>%
+  mutate(linenumber = row_number(),
+         chapter = cumsum(str_detect(text, regex("^chapter [\\divxlc]", 
+                                                 ignore_case = TRUE)))) %>%
+  ungroup() %>%
+  unnest_tokens(word, text)
+
+nrc_joy <- get_sentiments("nrc") %>% 
+  filter(sentiment == "joy")
+
+tidy_books %>%
+  filter(book == "Emma") %>%
+  inner_join(nrc_joy) %>%
+  count(word, sort = TRUE)
+
+jane_austen_sentiment <- tidy_books %>%
+  inner_join(get_sentiments("bing")) 
+jane_austen_sentiment2 <- jane_austen_sentiment %>%
+  count(book, index = linenumber %/% 80, sentiment) %>%
+  spread(sentiment, n, fill = 0) %>%
+  mutate(sentimentnet = positive - negative)
+```
+
+```{r}
+ggplot(jane_austen_sentiment2, aes(x = index, y = sentimentnet, fill = book)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~book, ncol = 2, scales = "free_x")
+```
+```{r}
+tidy_books %>%
+  inner_join(get_sentiments("bing")) %>%
+  count(word, sentiment, sort = TRUE) %>%
+  ungroup() %>%
+  group_by(sentiment) %>%
+  top_n(10) %>%
+  ungroup() %>%
+  mutate(word = reorder(word, n)) %>%
+  ggplot(aes(word, n, fill = sentiment)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~sentiment, scales = "free_y") +
+  labs(y = "Contribution to sentiment",
+       x = NULL) +
+  coord_flip() 
+```
+
+Getting files
+```{r}
+download.file("https://courseworks.columbia.edu/x/L294Da", destfile = "federalist.zip")
+unzip("federalist.zip")
+dir("federalist")
+```
+
+Putting them together
+```{r}
+library(tm)
+corpus_raw <- Corpus(DirSource(directory = "federalist", pattern = "fp"))
+corpus_raw
+```
+The stuff you do every time (cleaning)
+```{r}
+corpus <- tm_map(corpus_raw, content_transformer(tolower))
+corpus <- tm_map(corpus, stripWhitespace) 
+corpus <- tm_map(corpus, removePunctuation)
+corpus <- tm_map(corpus, removeNumbers)
+corpus <- tm_map(corpus, removeWords, stopwords("english"))
+corpus <- tm_map(corpus, stemDocument)
+```
+Make a documenttermmatrix
+```{r}
+dtm <- DocumentTermMatrix(corpus)
+dtm.mat <- as.matrix(dtm) 
+library(Matrix) 
+dtm.Mat <- sparseMatrix(dtm$i, dtm$j, x = dtm$v, 
+                        dims = c(dtm$nrow, dtm$ncol), 
+                        dimnames = dtm$dimnames)
+dtm.Mat[,1:6]
+```
+
+```{r}
+findAssocs(dtm, "govern", corlimit = 0.5)
+```
+```{r}
+corpus_tidy <- tidy(dtm)
+```
+
+```{r}
+corpus_tidy_tfidf <- corpus_tidy %>% bind_tf_idf(term, document, count)
+corpus_tidy_tfidf
+
+corpus_tidy_tfidf %>%
+  select(-count) %>%
+  arrange(desc(tf_idf))
+```
+
+Predicting Authorship
+```{r}
+corpus1 <- tm_map(corpus_raw, content_transformer(tolower))
+corpus1 <- tm_map(corpus1, stripWhitespace) 
+corpus1 <- tm_map(corpus1, removePunctuation)
+corpus1 <- tm_map(corpus1, removeNumbers)
+```
+
+```{r}
+dtm1 <- as.matrix(DocumentTermMatrix(corpus1))
+dtm1 <- dtm1 / rowSums(dtm1) * 1000
+```
+
+```{r}
+hamilton <- c(1, 6:9, 11:13, 15:17, 21:36, 59:61, 65:85)
+madison <- c(10, 14, 37:48, 58)
+
+author <- rep(NA, nrow(dtm1))
+author[hamilton] <- 1
+author[madison] <- -1
+```
+
+```{r}
+train <- data.frame(author = author[c(hamilton, madison)],
+                    dtm1[c(hamilton, madison), ])
+```
+
+```{r}
+hm_fit <- lm(author ~ upon + there + consequently + whilst, data = train)
+hm_fit
+```
+```{r}
+disputed  <- c(49,  50:57, 62,  63)
+tf_disputed <- as.data.frame(dtm1[disputed, ])
+tf_disputed[1:6,1:6]
+
+pred  <- predict(hm_fit, newdata = tf_disputed)
+sign(pred)
+
+```
+
+```{r}
+our_dist <- nchar(colnames(dtm))
+distr <- list()
+for (i in (1:max(our_dist))){
+  distr[[i]] <- c(sum(our_dist == i))
+}
+```
+
+```{r}
+flatten(distr)
+
+```
+
+```{r}
+library(topicmodels)
+data("AssociatedPress")
+ap_lda <- LDA(AssociatedPress, k = 2, control = list(seed = 1234))
+```
+Probability that each word was generated by a topic (does not sum to 1)
+
+```{r}
+ap_topics <- tidy(ap_lda, matrix = "beta")
+ap_topics
+
+ap_top_terms <- ap_topics %>%
+  group_by(topic) %>%
+  top_n(10, beta) %>%
+  ungroup() %>%
+  arrange(topic, -beta)
+```
+
+```{r}
+ap_top_terms %>%
+  mutate(term = reorder(term, beta)) %>%
+  ggplot(aes(term, beta, fill = factor(topic))) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~ topic, scales = "free") +
+  coord_flip()
+
+```
+```{r}
+ap_topics %>%
+  mutate(topic = paste0("topic", topic)) %>%
+  spread(topic, beta) %>%
+  filter(topic1 > .001 | topic2 > .001) %>%
+  mutate(log_ratio = log2(topic2 / topic1))
+```
+Document proportions (these do sum to 1 across topics)
+```{r}
+ap_documents <- tidy(ap_lda, matrix = "gamma")
+ap_documents
+filter(ap_documents, document == 1)
+```
+
+```{r}
+library(text2vec)
+download.file("http://mattmahoney.net/dc/text8.zip", destfile = "text8.zip")
+unzip("text8.zip", files = "text8")
+```
+

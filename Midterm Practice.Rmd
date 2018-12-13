@@ -1,0 +1,493 @@
+---
+title: "Data Mining Midterm Practice"
+author: "Michael Weisner"
+date: "10/19/2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+options(width = 100)
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Packages
+```{r Important Packages}
+library(tidyverse)
+library(tidytext)
+library(gutenbergr)
+library(janeaustenr)
+library(wordcloud)
+library(tm)
+#library(qdap)
+library(topicmodels)
+library(text2vec)
+library(dplyr)
+library(nycflights13)
+library(ISLR)
+library(pcaPP)
+library(psych)
+#library(matlib)
+```
+
+## Linear Algebra
+Check out matlib to actually do linear algebra here: https://cran.r-project.org/web/packages/matlib/vignettes/inv-ex1.html
+Also check out mathematical notation here: https://www.calvin.edu/~rpruim/courses/s341/S17/from-class/MathinRmd.html
+
+_Some quick Rules:_
+Go here: https://laurentlessard.com/teaching/ece532/cheat_sheet.pdf
+Or here: https://www.souravsengupta.com/cds2016/lectures/Savov_Notes.pdf
+
+Basic Matrix Construction:
+$$
+A = 
+\begin{bmatrix} 
+A_{11} & A_{1n} \\ 
+A_{m1} & A_{mn} \\ 
+\end{bmatrix}
+$$
+Matrix Multiplication:
+$$
+C_{(m*p)} = A_{(m*n)} * B_{(n*p)}
+$$
+Transpose:
+The transpose operator $A^{\top}$ swaps rows and columns. If A ∈ Rm×n then $A^{\top}$ ∈ Rn×m and $A^{\top}_{ij} = A_{ji}$.
++ $(A^{\top})^{\top} = A$
++ $(AB)^{\top} = B^{\top}A^{\top}$
+
+Inverse:
+The inverse of a square matrix, when multiplied by the non-inversed matrix, creates the identity matrix.
+$AA^{-1} = I$
++ $AA^{-1}$ is unique if it exists. 
++ $(A^{-1})^{-1} = A$
++ $(A^{-1})^{\top} = (A^{\top})^{-1}$
++ $(AB)^{-1} = B^{-1}A^{-1}$
+
+UDV
+$X = UDV^{\top}$
+Usefulness:
+$$
+\mathbf(X^{\top}X = (UDV^{\top})UDV^{\top} = VD^{\top}U^{\top}UDV^{\top} = VD^{\top}IDV^{\top} = VD^2V^{\top}
+$$
+
+## Matrix Operations
+```{r}
+A <- matrix(c(1, 2, 3, 4, 3, 1), nrow = 2, ncol = 3)
+B <- matrix(c(2, 1, 6, 4, 5, 2), nrow = 3, ncol = 2)
+```
+_Useful Commands_
+```{r}
+matrix(c(1,2,3), nrow = 1, ncol = 3) # creates matrices
+A %*% B # dot product
+t(A) # transpose
+```
+
+### 1. Compute the following
+_AB_
+```{r}
+A %*% B
+```
+$$
+\begin{bmatrix} 
+1 & 3 & 3 \\ 
+2 & 4 & 1 \\ 
+\end{bmatrix}
+*
+\begin{bmatrix} 
+2 & 4 \\ 
+1 & 5 \\
+6 & 2 \\
+\end{bmatrix}
+$$
+Now begin the dot product
+$$
+\begin{bmatrix} 
+1 * 2 + 3 * 1 + 3 * 6 & 1 * 4 + 3 * 5 + 3 * 2\\ 
+2 * 2 + 4 * 1 + 1 * 6 & 2 * 4 + 4 * 5 + 1 * 2 \\
+\end{bmatrix}
+$$
+Multiply Through
+$$
+\begin{bmatrix} 
+2 + 3 + 18 & 4 + 15 + 6\\ 
+4 + 4 + 6 & 8 + 20 + 2 \\
+\end{bmatrix}
+$$
+Add Through
+$$
+\begin{bmatrix} 
+23 & 25 \\ 
+14 & 30 \\
+\end{bmatrix}
+$$
+
+_$A^{\top}B^{\top}$_
+```{r}
+t(A) %*% t(B)
+```
+The transpose simply flips the values across the diagonal. We can still multiply because the columns in the first matrix match the rows in the second matrix.
+$$
+A^{\top} = 
+\begin{bmatrix} 
+1 & 2 \\
+3 & 4 \\
+3 & 1 \\
+\end{bmatrix}
+*
+B^{\top} =
+\begin{bmatrix} 
+2 & 1 & 6 \\
+4 & 5 & 2 \\
+\end{bmatrix}
+$$
+Dot Product Again
+$$
+\begin{bmatrix} 
+1 * 2 + 2 * 4 & 1 * 1 + 2 * 5 & 1 * 6 + 2 * 2 \\ 
+3 * 2 + 4 * 4 & 3 * 1 + 4 * 5 & 3 * 6 + 4 * 2 \\
+3 * 2 + 1 * 4 & 3 * 1 + 1 * 5 & 3 * 6 + 1 * 2 \\
+\end{bmatrix}
+$$
+Solve through
+$$
+\begin{bmatrix} 
+10 & 11 & 10 \\ 
+22 & 23 & 26 \\
+10 & 8 & 20 \\
+\end{bmatrix}
+$$
+
+_BA_
+```{r}
+B %*% A
+```
+Again we can multiply because the columns in B match the rows in A.
+$$
+\begin{bmatrix} 
+2 & 4 \\ 
+1 & 5 \\
+6 & 2 \\
+\end{bmatrix}
+*
+\begin{bmatrix} 
+1 & 3 & 3 \\ 
+2 & 4 & 1 \\ 
+\end{bmatrix}
+$$
+Do product through to get...
+$$
+\begin{bmatrix} 
+2 * 1 + 4 * 2 & 2 * 3 + 4 * 4 & 2 * 3 + 4 * 1 \\ 
+1 * 1 + 5 * 2 & 1 * 3 + 5 * 4 & 1 * 3 + 5 * 1 \\
+6 * 1 + 2 * 2 & 6 * 3 + 2 * 4 & 6 * 3 + 2 * 1 \\
+\end{bmatrix}
+$$
+And finally...
+$$
+\begin{bmatrix} 
+10 & 22 & 10 \\ 
+11 & 23 & 8 \\
+10 & 26 & 20 \\
+\end{bmatrix}
+$$
+
+_$(BA)^{\top}$_
+```{r}
+t(B %*% A)
+```
+```{r}
+t(A) %*% t(B)
+```
+
+
+$$
+(BA)^{\top} = A^{\top} * B^{\top}
+$$
+We already solved the above.
+
+### 2. The trace of a diagonal matrix X is defined as the sum of its diagonal elements: tr(X) = ∑Kk=1 Xkk. Prove that tr(AB) = tr(BA) for any two conformable matrices whose product is a square matrix.
+
+```{r}
+tr(A %*% B)
+```
+```{r}
+tr(B %*% A)
+```
+```{r}
+AB <- A %*% B
+BA <- B %*% A
+```
+
+Basically, you take all of the AijBji and BjiAij combinations are represented, and it's just a sum of them.
+Proof:
+tr(AB) = ∑mi=1(AB)ii=∑mi=1∑nj=1AijBji=∑nj=1∑mi=1BjiAij=∑nj=1(BA)jj= tr(BA)
+
+
+### 3. Prove that tr X⊤X  = ∑n ∑n X^2.
+```{r}
+E <- B %*% A
+tE <- t(E)
+tr(tE %*% E)
+tr(E %*% tE)
+E %*% E
+```
+In this case, each diagonal element (the jth element) of $X^{\top}X$ is equal to the inner product of the jth column of X. The transpose's elements can be rewritten in terms of X that show you it's just the values of X^2.
+
+
+### 4. Expand the matrix product below
+$$
+X = { [AB + (CD)^{\top}] [(EF)^{-1} + GH] }^{\top}
+$$
+Assume all matrices are square and $E^{-1}$ and $F^{-1}$ exist.
+
+Tranpose and Inverse rules for CD and EF
+$$
+X = { [AB + D^{\top}C^{\top}] [(F^{-1}E^{-1} + GH] }^{\top}
+$$
+
+Now remember matrix multiplication hint  from homework
+(A + B)(C + D) = A (C + D) + B (C + D) == AC + AD + BC + BD
+
+$$
+X =  { (ABF^{-1}E^{-1} + ABGH + D^{\top}C^{\top}F^{-1}E^{-1} + D^{\top}C^{\top}GH) }^{\top}
+$$
+Now remember transpose is equal to each added element in reverse multiplication order
+
+$$
+X = (E^{-1})^{\top}(F^{-1})^{\top}B^{\top}A^{\top} + H^{\top}G^{\top}B^{\top}A^{\top} + (E^{-1})^{\top}(F^{-1})^{\top}CD + H^{\top}G^{\top}CD 
+$$
+
+
+### 5. What operation is performed by postmultiplying a matrix by a diagonal matrix? What about premultiplication by a diagonal matrix?
+
+```{r}
+x <- c(1, 3, 6)
+D <- diag(x, nrow = 3, ncol = 3)
+E <- B %*% A
+E
+```
+
+With post-multiplication by a diagonal matrix each diagonal value acts as a scalar for the column of the corresponding matrix that it aligns with.
+```{r}
+E %*% D
+```
+
+
+With pre-multiplication by a diagonal matrix each diagonal value acts as a scalar for the row of the corresponding matrix that it aligns with.
+```{r}
+D %*% E
+```
+
+## 2. Principal Components Analysis
+In this problem, we are going to do a Principal Components Analysis (PCA) “manually” without the aid of the prcomp() function. To do so, you will first have to download the file called dataset.csv from Canvas to your working directory.
+
+1. Read the data into R 
+```{r}
+X <- as.matrix(readr::read_csv("dataset.csv"))
+#X <- as.matrix(readr::read_csv(file.choose()))
+```
+
+2. Use the `scale()` function to create an object called Z, which is the standardized version of X (i.e. the columns have a mean of 0 and a standard deviation of 1)
+```{r}
+Z <- scale(X, scale = TRUE)
+summary(Z)
+describe(Z)
+```
+
+3. Use the svd() function to obtain the Singular Value Decomposition (SVD) of Z, and then divide the elements of the d vector by N − 1 where N is the number of observations (or row numbers of SVD$d in this case) to obtain a new vector called sdev, which is a vector of standard deviations of the Principal Components. This counteracts dividing by the standard deviation of each column of X in part 2
+```{r}
+SVD <- svd(Z)
+sdev <- SVD$d / sqrt(nrow(Z) - 1)
+```
+
+4. Let K = 2 be the number of principal components you retain. Create a matrix called Y that is equal to the first K columns of U in the SVD of Z post-multiplied by a diagonal matrix that contains the first K elements of sdev.
+
+```{r}
+K <- 2L
+Y <- SVD$u[, 1:K] %*% diag(sdev[1:2])
+#Y
+```
+
+
+5. Use the ggplot2 package to create a scatterplot with the first column of Y on the horizontal axis and the second column of Y on the vertical axis.
+```{r}
+gg <- ggplot(as.data.frame(Y), aes(x = Y[, 1], y = Y[, 2]))
+gg <- gg + geom_point()
+gg <- gg + ggtitle("Manual PCA")
+gg <- gg + xlab("Y Column 1") + ylab("Y Column 2")
+gg
+```
+
+
+6. Use the PCAproj function in the pcaPP package with arguments k = 2 and scale = sd to obtain a robust PCA of the original matrix X. If you then create a biplot, how do the points look different from the plot you made in part 5?
+
+```{r}
+X_prout <- PCAproj(X, k=2, scale = sd)
+
+par(mar = c(5,4,4,2) + .1, las = 1, cex = 0.8)
+# par(mar = rep(2, times = 4) + .1, las = 1, cex = 0.7) # Ben's parameters
+biplot(X_prout, scale = 0)
+```
+
+It differents in a few ways, first being scale, second is obviously all of the vector orthagonalities, which is helpful in evaluating the more similar and different vectors.
+
+
+
+## 3. Clustering
+Using the same original dataset as in the previous problem, perform a hierarchical cluster analysis to choose a “reasonable” number of clusters with a dendrogram. Which observations fell into which cluster?
+
+### K Means (not Dendrogram)
+```{r}
+set.seed(3238249)
+X_kmout <- kmeans(X, centers = 3, nstart = 20)
+# Xcopy <- X
+# X <- Xcopy
+# colnames(X) <- c("V1", "V2", "V3", "V4", "V5", "V6", "V7", "V8", "V9", "V10")
+which(X_kmout$cluster == 2)
+with(as.data.frame(X), plot(V1, V2, col = X_kmout$cluster + 1, pch = 20, 
+                          main = "K-Means Clustering Results with K = 2"))
+```
+The clustering here looks sensible, we have the most concentrated center as its own cluster, and the less dense trailing points on either end as their own clusters.
+
+
+
+
+### Dendrogram
+```{r}
+X_df <- as.data.frame(X)
+hc_complete <- hclust(dist(X_df), method = "complete")
+hc_average <- hclust(dist(X_df), method = "average")
+hc_single <- hclust(dist(X_df), method = "single")
+
+plot(hc_complete, main = "Complete Linkage", xlab = "", sub = "")
+```
+```{r}
+plot(hc_average, main = "Average Linkage", xlab = "", sub = "")
+```
+```{r}
+plot(hc_single, main = "Single Linkage", xlab = "", sub = "")
+
+```
+What does this tell us?
+
+```{r}
+cutree(hc_complete, k = 4) # groups
+cutree(hc_complete, h = 10) # height
+#cutree(hc_average, 4)
+#cutree(hc_single, 4)
+cut <- cutree(hc_complete, h = 10)
+which(cut == 1)
+```
+
+Basically above is how we can see what variables fall into cut 1 (the first cluster).
+Below we can automate it.
+
+```{r}
+# Fancy
+for (i in (1:max(cut))){
+  cat("Cluster", i, ":", which(cut == i), "\n")
+}
+```
+
+```{r}
+# Assign to Vector
+cluster_list <- list(1:max(cut))
+for (i in (1:max(cut))) {
+  cluster_list[[i]] <- as.vector(which(cut == i))
+}
+cluster_list
+```
+
+
+## 4. Text Mining
+For this problem, you will need to download the file called Speeches_May_1967.zip from Canvas to your working directory. Then, unzip this file to create a directory that has the text of 60 speeches given by President Lydon B. Johnson in May of 1967.
+
+1. Create a tidy data.frame for the corpus of documents
+```{r}
+library(tidyverse)
+library(tidytext)
+library(tm)
+library(stringr)
+```
+```{r}
+# setwd("/Users/mw2931/Desktop/QMSS/Data Mining/Notes for Midterm/")
+unzip("Speeches_May_1967.zip") # unzip Speeches_May_1967.zip 
+dir("Speeches_May_1967")
+```
+```{r message = FALSE}
+corpus_raw <- Corpus(DirSource(directory = "Speeches_May_1967", pattern = "speech"))
+corpus_raw
+```
+Remember:
+Text analysis usually analyzes words or phrases without regard to sentence or paragraph structure
+Common operations on a corpus of text include
+
+* making everything lowercase
+* removing extra whitespace
+* removing punctuation
+* removing numbers
+* removing stop words (like "the", which are common but useless)
+* utilizing word stems (like "politic" to include "political" and "politics")
+
+```{r}
+corpus <- tm_map(corpus_raw, content_transformer(tolower))
+corpus <- tm_map(corpus, stripWhitespace) 
+corpus <- tm_map(corpus, removePunctuation)
+corpus <- tm_map(corpus, removeNumbers)
+#corpus <- tm_map(corpus, removeWords, stopwords("english"))
+corpus <- tm_map(corpus, stemDocument)
+```
+Create a DocumentTermMatrix
+```{r}
+dtm <- DocumentTermMatrix(corpus)
+```
+We can make it a matrix now
+```{r}
+dtm.mat <- as.matrix(dtm)         # dense form using plain matrices
+library(Matrix)                   # sparse form using the Matrix package
+dtm.Mat <- sparseMatrix(dtm$i, dtm$j, x = dtm$v, 
+                        dims = c(dtm$nrow, dtm$ncol), 
+                        dimnames = dtm$dimnames)
+dtm.Mat[,1:6]
+```
+
+Remember:
+To find words (stems) that are highly associated with a given word (stem), do something like
+```{r}
+#findAssocs(dtm, "govern", corlimit = 0.5)
+```
+There is a plot method for a `DocumentTermMatrix`:
+```{r}
+#plot(dtm, terms = findFreqTerms(dtm, lowfreq = 500), 
+     #corThreshold = 0.25)
+```
+
+_We can convert `dtm` into a tidy `data.frame` with_
+```{r}
+corpus_tidy <- tidy(dtm)
+```
+
+2. Use the LDA function in the topicmodels package to perform Latent Dirichlet Allocation with k = 3 clusters.
+
+Another technique that is very populate is Latent Dirichlet Allocation (LDA), 
+which yields probabilities that each document falls in one of $K$ topics. 
+Every document is a mixture of $K$ topics and every topic is a mixture of words
+```{r, message = FALSE}
+library(topicmodels)
+sp_lda <- LDA(dtm, k = 3, control = list(seed = 12345L)) # assigns 3 topics with k
+```
+
+_Gamma matrix is docs by topic, beta is words by topic._
+```{r}
+sp_documents <- tidy(sp_lda, matrix = "gamma") #doc proportions
+#sp_documents
+#filter(sp_documents, document == "speech01.txt")
+group_by(sp_documents, topic) %>% top_n(gamma, n = 3) 
+```
+
+
+3. Identify a few documents that have a high probability of falling in one cluster and a low probability of falling the other two clusters. Do so for all three clusters.
+Cluster Topic 1: 14, 30, 35
+Cluster Topic 2: 01, 02, 26
+Cluster TOpic 3: 07, 11, 48
+
+4. Based on your reading of the key documents found in part 3, what topics do each of these three clusters represent?
