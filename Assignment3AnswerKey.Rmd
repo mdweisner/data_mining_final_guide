@@ -1,0 +1,190 @@
+---
+title: "GR5058 Assignment 4 Answer Key"
+author: "Ben Goodrich"
+date: "November 20, 2018"
+output: html_document
+---
+
+# Prediction with Linear Models
+
+First, we get the original data
+```{r}
+ROOT <- "https://archive.ics.uci.edu/ml/machine-learning-databases/"
+crime <- read.csv(paste0(ROOT, "communities/communities.data"), 
+                  header = FALSE, na.strings = "?")
+colnames(crime) <- read.table(paste0(ROOT, "communities/communities.names"), 
+                              skip = 75, nrows = ncol(crime))[,2]
+rownames(crime) <- paste(crime$state, crime$communityname, sep = "_")
+```
+
+Some variables are or should be coded as factors, such as
+```{r}
+colnames(crime)[1:5]
+```
+it might be feasible to estimate a dummy variable for each state, but
+it is certainly problematic to estimate a dummy variable for each 
+county / community. First, all counties are within states, so including
+state dummy variables on top of county dummy variables would create
+perfect collinearity. Worse, all the counties in the testing data would
+not have a corresponding estimate of a county-specific shift in violent
+crime, so you could not obtain predictions in the testing.
+
+The `fold` variable is irrelevant and we will let the **caret** package
+handle the cross-validation, so we can get rid of the first five variables.
+Of the remaining ones, more than twenty variables are mostly missing.
+```{r}
+which(colSums(is.na(crime)) == 1675)
+```
+If we were to use any of those variables as predictors, then we would lose
+about 84% of the training observations. Thus, the optimization would be
+(over)fit to the training observations that were not NA on these variables
+and likely to generalize well to the testing data. So, let's get rid of
+all of that:
+```{r, message = FALSE}
+library(dplyr)
+crime <- select(crime, -state, -county, -community, -fold) %>%
+           select_if(is.numeric) %>% select_if(~sum(is.na(.)) < 2)
+```
+There is one variable with one missing observation that we might want to clean
+up, although doing so with the mean of the observed values is a bad idea in general:
+```{r}
+crime$OtherPerCap[is.na(crime$OtherPerCap)] <- mean(crime$OtherPerCap, na.rm = TRUE)
+```
+
+Then we divide into training and testing:
+```{r, message = FALSE}
+library(caret)
+set.seed(12345)
+in_train <- createDataPartition(y = crime$ViolentCrimesPerPop,
+                                p = 3 / 4, list = FALSE)
+training <- crime[ in_train, ]
+testing  <- crime[-in_train, ]
+```
+We can parallelize some of the cross-validation:
+```{r, message = FALSE}
+library(doMC) # does not help on Windows
+registerDoMC(parallel::detectCores())
+```
+
+## OLS Model
+
+We could start with a large OLS model that includes all predictors we did not drop:
+```{r}
+ols <- lm(ViolentCrimesPerPop ~ ., data = training)
+y_hat <- predict(ols, newdata = testing)
+defaultSummary(data.frame(obs = testing$ViolentCrimesPerPop, pred = y_hat))
+``` 
+
+We could try to step it down to a smaller model that predicts better.
+```{r, step, cache = TRUE}
+ols_step <- step(ols, trace = FALSE)
+y_hat <- predict(ols_step, newdata = testing)
+defaultSummary(data.frame(obs = testing$ViolentCrimesPerPop, pred = y_hat))
+```
+
+## Elastic Net (glmnet)
+
+We could try elastic net, this time including all pairwise interactions,
+which is more than the number of training observations:
+```{r, enet, cache = TRUE}
+ctrl <- trainControl(method = "cv", number = 10)
+enet <- train(ViolentCrimesPerPop ~ (.)^2, data = training, method = "glmnet", 
+              trControl = ctrl, tuneLength = 10, preProcess = c("center", "scale"))
+y_hat <- predict(enet, newdata = testing)
+defaultSummary(data.frame(obs = testing$ViolentCrimesPerPop, pred = y_hat))
+```
+
+For what it is worth, this dropped all but the following predictors:
+```{r}
+b <- coef(enet$finalModel, enet$bestTune$lambda)[ , 1]
+round(sort(b[b != 0]), digits = 5)
+```
+
+## Partial Least Squares
+
+Finally, we could try partial least squares:
+```{r, pls, cache = TRUE}
+pls_grid <- data.frame(.ncomp = 1:100)
+PLS <- train(ViolentCrimesPerPop ~ (.)^2, data = training, method = "pls",
+             trControl = ctrl, tuneGrid = pls_grid, preProcess = c("center", "scale"))
+y_hat <- predict(PLS, newdata = testing)
+defaultSummary(data.frame(obs = testing$ViolentCrimesPerPop, pred = y_hat))
+```
+
+Overall, stepwise found the best (on the mean-squared error criterion) model 
+starting from an OLS model without interactions.
+
+# Classification with Binary Outcomes
+
+Get the data and partition it:
+```{r}
+loans <- readRDS("loans.rds")
+loans$y <- factor(loans$y, levels = 0:1, labels = c("rejected", "approved"))
+loans$has_job <- as.factor(sign(loans$Employment.Length - 1))
+in_train <- createDataPartition(y = loans$y,
+                                p = 3 / 4, list = FALSE)
+training <- loans[ in_train, ]
+testing  <- loans[-in_train, ]
+```
+
+## Initial model
+
+Again, you should not expect zipcode to be a worthwhile predictor,
+because there are so many zipcodes with one or only a few applicants.
+Including it will also cause problems during cross-validation. Also,
+zipcode information is often used to _estimate_ a person's socio-demographic
+information, but in this case, the loan application already has the
+debt-to-income ratio and employment history. If you know those two things,
+how would also knowing the person happens to live in the 10027 zip code
+tell you anything about the prospects that such a loan would be repaid on
+time?
+
+We can estimate a logit model without the zipcode predictor in the training 
+data via `glm` (or `train`)
+```{r}
+logit <- glm(y ~ Debt.To.Income.Ratio * Amount.Requested + has_job, 
+             data = training, family = binomial)
+```
+and calculate the proportion of correct predictions in the testing data
+```{r}
+z <- predict(logit, newdata = testing, type = "response") > 0.5
+z <- factor(z, levels = c(FALSE, TRUE), labels = c("rejected", "approved"))
+confusionMatrix(z, testing$y)
+```
+Although this looks good, it is merely a function of over 90% of loans applications being turned down.
+
+## LDA
+
+```{r, message = FALSE}
+LDA <- train(formula(logit), data = training, method = "lda", 
+             preProcess = c("center", "scale"))
+z <- predict(LDA, newdata = testing)
+confusionMatrix(z, testing$y)
+```
+
+LDA is slightly worse than a logit model.
+
+## QDA
+
+```{r}
+QDA <- train(formula(logit), data = training, method = "qda", 
+             preProcess = c("center", "scale"))
+z <- predict(QDA, newdata = testing)
+confusionMatrix(z, testing$y)
+```
+
+QDA is much worse.
+
+## glmnet
+
+```{r, message = FALSE}
+ctrl <- trainControl(method = "cv", number = 10)
+enet <- train(formula(logit), data = training, method = "glmnet", 
+              trControl = ctrl, tuneLength = 10, preProcess = c("center", "scale"))
+z <- predict(enet, newdata = testing)
+confusionMatrix(z, testing$y)
+```
+
+This one is the best in terms of the proportion of correct predictions, but it 
+predicts that no one receives a loan, which is substantively useless if you
+are in the business of loaning money to (some) people who apply for it.

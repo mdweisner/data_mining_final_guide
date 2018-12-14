@@ -4,4 +4,804 @@ author: "Michael Weisner"
 date: "12/13/2018"
 output: html_document
 ---
+```{r setup, include=FALSE, error=TRUE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Package List
+```{r eval=FALSE}
+library(lars)
+library(caret)
+library(glmnet)
+library(elasticnet)
+library(mlbench)
+library(gam)
+library(earth)
+library(BART)
+library(doMC)
+library(flam)
+```
+
+# To Do:
++ How to turn continuous into classification model
++ When varImp? Any model?
++ How do we compare RMSE between models? e.g BART and RF seem comparable to each other, but not with OLS/Lassso, which are very small comparatively.
+
+# Pre-Midterm:
+
+# Post-Midterm:
+## Week 9: Intro to Supervised Learning
+### Packages
+```{r, eval = FALSE, echo=FALSE}
+install.packages(c("lars", "caret", "elasticnet", "mlbench")) # do this once outside
+```
+### Least Squares Estimator
+Least Squares Estimator is a linear function with weights and errors. The optimal solution is $\left(\mathbf{X}^\top \mathbf{X}\right)^{-1} \mathbf{X}^\top \mathbf{y}$
+
+### Linear Models and Supervised Learning
+Basically, don't use output of lm() for statistical purposes (standard errors, p values, confidence intervals, etc). It's all moot in supervised learning. Supervised learning doesn't really use random samples. Statistically significant =/= good predictor because predictions are a function of the entire set of observations and variables, whereas significance assumes other variables being held constant.
+
+_Coefficients_
+If you WANT to see the coefficients of an ols, use this:
+```{r error=TRUE}
+round(coef(ols), digits = 2)
+```
+### Prediction Full Training and Testing Example (Continuous)
+Step 0: Load the whole dataset
+```{r}
+library(dplyr)
+DATA_FRAME <- as.data.frame(BostonHousing, package = "mlbench")
+DATA_FRAME <- rename(DATA_FRAME, OUTPUT_VAR = medv)
+```
+
+Step 1: Split into training and testing
+```{r, message = FALSE}
+in_train <- createDataPartition(y = DATA_FRAME$OUTPUT_VAR,
+                                p = 3 / 4, list = FALSE)
+str(in_train)
+DATA_FRAME_training <- DATA_FRAME[ in_train, ]
+DATA_FRAME_testing  <- DATA_FRAME[-in_train, ]
+```
+
+OPTIONAL Step 2: Set trainControl for Cross Validation
+```{r}
+ctrl <- trainControl(method = "cv", number = 10)
+
+```
+
+OPTIONAL Step 3: Set Tuning Grid (NOTE: Not Always enet!)
+```{r}
+enetGrid <- expand.grid(.lambda = seq(.05, 1, length = 10),
+                        .fraction = seq(.05, 1, length = 10))
+head(enetGrid)
+```
+
+Step 4: Solve an optimization problem (Pre-Processing Optional)
+```{r}
+OLS_MODEL <- train(OUTPUT_VAR ~ ., data = DATA_FRAME_training, method = "lm", 
+             preProcess = c("center", "scale"))
+
+set.seed(12345)
+
+LASSO_MODEL <- train(OUTPUT_VAR ~ ., data = DATA_FRAME_training, method = "enet", 
+               trControl = ctrl, tuneGrid = enetGrid)
+
+# Least Angle Regression (LARS)
+enetGrid$.lambda <- NULL # delete the .lambda column
+LARS <- train(OUTPUT_VAR ~ ., data = training, method = "lars", 
+              trControl = ctrl, tuneGrid = enetGrid)
+LARS
+```
+
+Step 5: Predict in the testing data
+```{r}
+y_hat_LM <- predict(OLS_MODEL, newdata = DATA_FRAME_testing)
+y_hat_LASSO <- predict(LASSO_MODEL, newdata = DATA_FRAME_testing)
+```
+
+Step 6: Evaluate
+```{r}
+defaultSummary(data.frame(obs = DATA_FRAME_testing$OUTPUT_VAR, pred = y_hat_LM))
+defaultSummary(data.frame(obs = DATA_FRAME_testing$OUTPUT_VAR, pred = y_hat_LASSO))
+```
+
+### Training & Testing
+_Generic Training Function_
+```{r}
+in_train <- createDataPartition(y = INSERT_DATA_HERE$INSERT_VAR_HERE,
+                                p = 3 / 4, list = FALSE)
+str(in_train)
+INSERT_DATA_HERE_training <- INSERT_DATA_HERE[ in_train, ]
+INSERT_DATA_HERE_testing  <- INSERT_DATA_HERE[-in_train, ]
+```
+
+### Predicting from Models
+We can also calculate the Mean Squared Error (MSE) in the _testing_ data 
+using the `predict` function and the `newdata` argument:
+```{r}
+y_hat <- predict(INSERT_OUTCOME_MODEL_HERE, newdata = testing)
+mean((testing$INSERT_OUTCOME_VAR_HERE - y_hat) ^ 2)
+```
+
+### Cross Validation
+$k$-fold cross-validation is where you split the original dataset into $k$ (often $k = 10$) mutually exclusive and exhaustive (and often equally sized) subsets, treat $k - 1$ of these subsets collectively as the "training" data to obtain $\mathbf{b}$ and use the excluded 
+subset as the "testing" data to evaluate $\mathbf{e}^\ast\left(\mathbf{b}\right)$.
+That can be done $k$ possible ways and you can average the results over them.
+
+```{r error=TRUE}
+library(caret)
+ctrl <- trainControl(method = "cv", number = 10)
+set.seed(12345)
+MODEL_cv <- train(INSERT_OUTCOME_VAR_HERE ~ ., data = training, method = "MODEL_METHOD", trControl = ctrl) # e.g. ols_cv has method "lm"
+MODEL_cv
+# 
+#
+#
+#
+# random forest method = "rf"
+```
+### Training Controls
+```{r}
+ctrl <- trainControl(method = "cv", number = 10)
+```
+TrainControl is about utilizing cross validation (hence the cv) over 10 partitions in the training data to help figure out paramters.
+
+### Get RMSE and Stats
+```{r error=TRUE}
+defaultSummary(data.frame(obs = INSERT_TESTING_DATA$OUTCOME_VAR, pred = y_hat_MODEL))
+```
+
+To get JUST RMSE instead of using sigma do this:
+```{r error=TRUE}
+defaultSummary(data.frame(obs = INSERT_TESTING_DATA$OUTCOME_VAR, pred = y_hat_MODEL))[1]
+```
+
+### YHAT
+This is prediction, see above
+
+### AIC & STEP
+IF IT COMES UP
+AIC is the Aikaike Information Criterion (AIC). The lower the AIC the better.
+Basically just run this:
+```{r}
+AIC(INSERT_MODEL)
+```
+Gives you sum of misfit term and complexity terms.
+
+Use STEP function to get ordered list of models by AIC
+```{r}
+step(INSERT_MODEL) # remember lower is better
+```
+
+Example Steps:
+```{r}
+OLS <- lm(OUTPUT_VAR ~ ., data = DATA_FRAME_training)
+OLS_SUBSET <- step(OLS)
+round(coef(OLS_SUBSET), digits = 2)
+setdiff(names(coef(OLS)), names(coef(OLS_SUBSET)))
+```
+Note this remnoved "indus" and "age" because they're not useful enough.
+
+Predict using Steps
+```{r}
+OLS_AIC <- step(OLS, trace = FALSE)
+```
+Somewhat surprisingly, the `step` function only drops a few predictors,
+namely:
+```{r}
+setdiff(names(coef(OLS)), names(coef(OLS_AIC)))
+```
+
+Get the preditions
+```{r}
+y_hat_AIC <- predict(OLS_AIC, newdata = DATA_FRAME_testing)
+defaultSummary(data.frame(obs = DATA_FRAME_testing$OUTPUT_VAR, pred = y_hat_AIC))
+```
+
+
+### Penalization (Ridge & LassO)
+Instead of minimising sum of squared residuals (the most unbiased estimators of coefficients) we minimize other things to get better predictability.
+
+Ridge regression and Lasso regression can be generalized to an objective function that
+minimizes the SSR plus $\lambda$ times the sum of absolute coefficients raised to some
+positive power $\left(\tau\right)$. 
+
+$$
+e\left(\mathbf{b}\right)^\top e\left(\mathbf{b}\right) + 
+\lambda \sum_{k=1}^p \left|b_k\right|^\tau
+$$
+Ridge = L2 norm (euclidian distance), basically the direct distance between two points like pythagorean theorom
+Lasso = L1 norm (not euclidian distance), basically taxicab geometry (can't go straight to it)
+
+In both cases we're trying to minimize SSR + $\lambda$ * the sum of absolute coefficients raised to a positive power (1 in lasso, 2 in ridge)
+
+Lasso Example
+```{r}
+set.seed(12345)
+ctrl <- trainControl(method = "cv", number = 10)
+enetGrid <- expand.grid(.lambda = seq(.05, 1, length = 10),
+                        .fraction = seq(.05, 1, length = 10))
+head(enetGrid)
+lasso <- train(OUTPUT_VAR ~ ., data = DATA_FRAME_training, method = "enet", 
+               trControl = ctrl, tuneGrid = enetGrid)
+lasso$bestTune
+```
+
+
+### lambdas
+There are more unknowns than constraints, so we need to pick random lambdas, optimize coefficients based on that lambda, then cross validate to check performance on the hold out data to get the best values.
+
+We use the tuning grid to tell the model what lambdas to search across.
+
+When lambda is 0, it's just OLS because Ridge is about minimizing the sum of squared residuals * coefficeints^2, so when you maket he penalty 0 then it's not a penalized regression, just a normal regression.
+
+### Tuning Grid Example (find lambdas)
+```{r}
+enetGrid <- expand.grid(.lambda = seq(.05, 1, length = 10),
+                        .fraction = seq(.05, 1, length = 10))
+head(enetGrid)
+```
+
+### Partial Least Squares
+Better than Principal Components Regression
+```{r}
+PLS <- train(OUTPUT_VAR ~ ., data = training, method = "pls", 
+             tuneLength = 20, trControl = ctrl)
+PLS
+```
+Predict
+```{r}
+y_hat <- predict(PLS, newdata = testing)
+mean( (testing$lpsa - y_hat) ^ 2 )
+```
+
+## Classification
+Linear Models: Just don't!
+Refer to notes 11.13.2018 Opening Paragraph
+
+### Factoring (important)
+Example of coronary heart disease in South Africa
+```{r}
+SAheart <- read.csv("https://web.stanford.edu/~hastie/ElemStatLearn/datasets/SAheart.data",
+                    header = TRUE)
+SAheart$row.names <- NULL # get rid of the first column
+SAheart$chd <- factor(SAheart$chd, labels = c("yes", "no"), levels = 1:0) # very important
+```
+It is very important in R to designate outcome variables as factors in classification
+problems. Otherwise, many supervised learning algorithms will treat them as continuous
+and do LPMs, which is a very bad idea even though we are going to do so here.
+
+### Create Classification LM Model
+```{r}
+library(caret)
+set.seed(12345)
+in_train <- createDataPartition(y = SAheart$chd, p = 3 / 4, list = FALSE)
+training <- SAheart[ in_train, ]
+testing  <- SAheart[-in_train, ]
+ols <- lm(chd == "yes" ~ ., data = training) # this is how to set classification as outcome var
+```
+
+### Factoring OLS
+matrix of confusion is a common way to evaluate classifications. Simply make a 
+square contingency table between the levels in the classification and the outcomes
+in the testing data:
+```{r}
+y_hat_ols <- predict(ols, newdata = testing)
+z_ols <- factor(y_hat_ols > 0.5, levels = c(TRUE, FALSE), labels = c("yes", "no"))
+```
+### Confusion Matrices
+Use these to see prediction vs reality in classification problems
+```{r}
+confusionMatrix(z_ols, testing$chd)
+```
+
+### Generalized Linear Models (GLM) and Ridge
+
+### Classification Full Training and Testing Example
+Step 0: Load the whole dataset
+```{r}
+SAheart <- read.csv("https://web.stanford.edu/~hastie/ElemStatLearn/datasets/SAheart.data",
+                    header = TRUE)
+SAheart$row.names <- NULL # get rid of the first column
+SAheart$chd <- factor(SAheart$chd, labels = c("yes", "no"), levels = 1:0) # very important
+```
+
+Step 1: Split into training and testing
+```{r, message = FALSE}
+library(caret)
+set.seed(12345)
+in_train <- createDataPartition(y = SAheart$chd, p = 3 / 4, list = FALSE)
+training <- SAheart[ in_train, ]
+testing  <- SAheart[-in_train, ]
+```
+
+OPTIONAL Step 2: Set trainControl for Cross Validation
+```{r}
+ctrl <- trainControl(method = "repeatedcv", repeats = 3, 
+                     classProbs = TRUE, summaryFunction = twoClassSummary)
+```
+
+OPTIONAL Step 3: Set Tuning Grid (NOTE: Not Always enet!)
+```{r}
+tune_grid <- expand.grid(.alpha = seq(0, 1, length.out = 10),
+                         .lambda = seq(0, 1, length.out = 10))
+```
+
+Step 4: Solve an optimization problem (Pre-Processing Optional)
+```{r cache=TRUE}
+# Linear
+ols <- lm(chd == "yes" ~ ., data = training) # this is how to set classification as outcome var
+
+# Logit
+logit <- glm(chd ~ ., data = training, family = binomial(link = "logit"))
+
+# Penalized Logit
+penalized_logit <- train(chd ~ ., data = training, method = "glmnet", 
+                         trControl = ctrl, metric = "ROC", tuneGrid = tune_grid,
+                         preProcess = c("center", "scale"))
+
+#  LDA
+LDA <- train(chd ~ sbp + tobacco + ldl + famhist + obesity + alcohol + age, 
+             data = training, method = "lda", preProcess = c("center", "scale"))
+
+# QDA
+QDA <- train(chd ~ sbp + tobacco + ldl + famhist + obesity + alcohol + age, 
+             data = training, method = "qda", preProcess = c("center", "scale"))
+```
+
+Step 5: Predict in the testing data
+```{r}
+# Linear
+y_hat_ols <- predict(ols, newdata = testing)
+z_ols <- factor(y_hat_ols > 0.5, levels = c(TRUE, FALSE), labels = c("yes", "no"))
+
+# Logit
+y_hat_logit <- predict(logit, newdata = testing, type = "response") # these are probabilities
+
+# Penalized Logit
+y_hat_penalized_logit <- predict(penalized_logit, newdata = testing, type = "prob")$yes
+```
+
+Step 6: Turn Prediction into Classification
+```{r}
+# these are classifications from logit from glm
+z_logit <- factor(y_hat_logit > 0.5, levels = c(TRUE, FALSE), labels = c("yes", "no")) 
+table(z_logit, testing$chd)
+
+# below are classifications from penalized logit/glmnet
+z <- predict(penalized_logit, newdata = testing) 
+```
+
+Step 7: Evaluate (Confusion Matrix)
+```{r}
+defaultSummary(data.frame(obs = testing$chd, pred = z))
+confusionMatrix(z, reference = testing$chd)
+
+# LDA
+confusionMatrix(predict(LDA, newdata = testing), reference = testing$chd)
+
+# QDA
+confusionMatrix(predict(QDA, newdata = testing), reference = testing$chd)
+```
+
+### Definitions of Confusion Matrix:
+Predicted / Observed | yes  | no
+-------------------  | ---- | ----
+yes                  | A    | B
+no                   | C    | D
+Accuracy = correct yeses + correct nos / total OR $(A+D)/(A+B+C+D)$
+Sensitivity $= A/(A+C)$ # correct yeses over everything else
+Specificity $= D/(B+D)$ # correct nos over everything else
+
+For other definitions ctrl + f on 11.13.2018 notes
+
+### ROC
+Receiver Operating Characteristic (ROC) is a metric to determine the best value of tuning parameters to maximize sensitivity and specificity
+```{r}
+library(pROC)
+penalized_logit_ROC <- roc(testing$chd, 
+                           predict(penalized_logit, newdata = testing, type = "prob")[ , "yes"])
+plot(penalized_logit_ROC, las = 1)
+auc(penalized_logit_ROC)
+```
+Perfect ROC would be a tall right angle (maximum specificity and sensitivity) but basically the more area udner the curve the better.
+
+### Callibration Plots
+These are to plot the observed event percentage by the bin midpoint (aka modeled predicted probability)
+Ideally this should be a 45 degree line
+
+```{r}
+cc <- calibration(chd ~ y_hat_logit  + y_hat_penalized_logit, data = testing)
+plot(cc) # pink is for the penalized logit model
+```
+Note: these are particularly bad. Like things they say are 100% likely are listed as never happening.
+
+### Discriminant Analysis (LDA & QDA)
+These models use covariance estimates to figure out what class something is in either via a linear combination or a quadratic combination of the variables.
+
+Linear Discriminat Analysis (LDA)
+Can't work when you have more predictors than observations
+```{r}
+LDA <- train(chd ~ sbp + tobacco + ldl + famhist + obesity + alcohol + age, 
+             data = training, method = "lda", preProcess = c("center", "scale"))
+confusionMatrix(predict(LDA, newdata = testing), reference = testing$chd)
+```
+
+Quadratic Discriminant Analysis (QDA)
+Can't work when you have more predictors than observations
+```{r}
+QDA <- train(chd ~ sbp + tobacco + ldl + famhist + obesity + alcohol + age, 
+             data = training, method = "qda", preProcess = c("center", "scale"))
+confusionMatrix(predict(QDA, newdata = testing), reference = testing$chd)
+```
+
+Partial Least Squares Discriminant Analysis (PLSDA)
+Most useful when you have more predictors than observations because LDA/QDA don't work (because you would try to invert a non-invertable matrix)
+```{r}
+PLSDA_grid <- expand.grid(.ncomp = 1:7)
+PLSDA <- train(chd ~ sbp + tobacco + ldl + famhist + obesity + alcohol + age, 
+               data = training, method = "pls", preProcess = c("center", "scale"),
+               metric = "ROC", trControl = ctrl, tuneGrid = PLSDA_grid)
+confusionMatrix(predict(PLSDA, newdata = testing), reference = testing$chd)
+```
+
+### Nearest Shrunken Centroids
+Basically 
+Most useful when you have more predictors than observations because LDA/QDA don't work (because you would try to invert a non-invertable matrix)
+
+```{r, results = "hide"}
+NSC <- train(chd ~ sbp + tobacco + ldl + famhist + obesity + alcohol + age,
+             data = training, method = "pam", preProcess = c("center", "scale"),
+               metric = "ROC", trControl = ctrl, 
+             tuneGrid = data.frame(.threshold = 0:25))
+```
+NSC will drop some predictors based on ROC score (similar to step function)
+```{r}
+confusionMatrix(predict(NSC, newdata = testing), reference = testing$chd)
+predictors(NSC) # retained predictors
+```
+
+## Adjusting Variables to Work Better in Linear Models (Poly, Cut, Knots, Splines, etc)
+### Packages
+```{r, results=hide}
+library(gam)
+library(earth)
+```
+
+Section Data
+```{r}
+data(Wage, package = "ISLR")
+Wage <- Wage[order(Wage$age),]
+```
+
+### Polynomial Regressions
+You can estimate the parameters by least squares, even though it is nonlinear in $x$.
+It is easy to overfit in the training data and predict poorly in the testing data.
+```{r}
+linear <- lm(wage ~ age, data = Wage)
+quadratic <- lm(wage ~ poly(age, degree = 2), data = Wage)
+cubic <- lm(wage ~ poly(age, degree = 3), data = Wage)
+quartic <- lm(wage ~ poly(age, degree = 4), data = Wage)
+binary <- glm(wage > 250 ~ poly(age, degree = 4), data = Wage, family = binomial) # Don't do it, this is dumb
+```
+This last one is dumb in addition to overfitting.
+
+_Predict_
+```{r}
+p_linear <- predict(linear, data = Wage)
+p_quadratic <- predict(quadratic, data = Wage)
+p_cubic <- predict(cubic, data = Wage)
+p_quartic <- predict(quartic, data = Wage)
+p_binary <- predict(binary, data = Wage)
+```
+
+### Cut (or step functions)
+Cutting variables at certain steps can discretize a continuous variable in order to estimate a step function
+on the coefficients.
+```{r}
+Wage$age_cut <- cut(Wage$age, breaks = 5)
+summary(lm(wage ~ age_cut, data = Wage))
+summary(glm(wage > 250 ~ age_cut, data = Wage, family = binomial))
+```
+
+### Regression Splines
+Splines are a combination of cutting at knots and fitting a polynomial within each region (each cut section). The function is required to be differentiable at the knots, and can additionally impose contraints that the model is linear at the boundaries. (more constraints = worse prediction but better interpretability)
+
+```{r, message = FALSE}
+library(caret)
+set.seed(12345)
+in_train <- createDataPartition(Wage$wage, p = 3 / 4, list = FALSE)
+training <- Wage[ in_train, ]
+testing  <- Wage[-in_train, ]
+```
+
+```{r}
+library(splines)
+fit <- lm(wage ~ bs(age, knots = c(25, 40, 60)), data = training) # knots are set by user here
+yhat <- predict(fit, newdata = testing)
+plot(testing$age, yhat, type = "l", las = 1)
+defaultSummary(data.frame(obs = testing$wage, pred = yhat))
+```
+
+### Smoothing Splines
+Basically we're trying to find a curve (the loss function, aka the sum of square residuals + penalizaion (lambda) * total wiggliness, aka how off we are)
+Lower lambda = you can be more wiggly (more risk of overfitting)
+Higher lambda = you force less wiggliness (lambda is a penalty) so we're minimizing wiggliness.
+Remember if lambda is 0 you have an OLS function.
+
+_NOTE:_ Splines are piecewise! Aka each cut is potentially a differnet polynomial/model accordingly
+Bias = diff between expected and correct (aka fancy error)
+Variance = if you change one point how drastically does the predict function change.
+As $\lambda \to 0$ (no smoothing), the smoothing spline converges to the interpolating spline. aka goes from point to point
+As $\lambda \to \infty$  (infinite smoothing), the roughness penalty becomes paramount and the estimate converges to a linear least squares estimate (aka a straight line, like OLS)
+
+```{r}
+fit <- with(training, smooth.spline(x = age, y = wage, df = 16))
+plot(fit$x, fit$y, type = "l", las = 1)
+```
+
+### Multivariate Adaptive Regression Splines (MARS)
+_NOTE:_ MARS is also piecewise (each section gets its own hinge, which also does feature selection)
+
+MARS transforms each predictor `x` into `h(x,a)`
+```{r}
+h <- function(x, a = 0) {     # arguments
+  return(ifelse(x > a, x, 0)) # return statement only referring to arguments
+}
+```
+and `h(-x,a)`, which is known as a hinge function or a hockey stick function
+```{r}
+curve(h(x), from = -2, to = 5, ylim = c(-2,5), las = 1, ylab = "Hinge Functions")
+#curve(h(-x), col = "red", add = TRUE)
+```
+
+The MARS fitting procedure estimates the hinge point (`a`) and the coefficients.
+It can also drop some of them (by putting `a` outside the range of the predictor) 
+and estimate polynomial hinge functions.
+
+### MARS Prediction
+```{r, message = FALSE}
+ctrl <- trainControl("cv", number = 10)
+marsGrid <- expand.grid(.degree = 1:3, .nprune = 1:10)
+MARS <- train(wage ~ year + age + education, data = testing,
+              method = "earth",
+              trControl = ctrl, tuneGrid = marsGrid)
+coef(MARS$finalModel)
+varImp(MARS)
+defaultSummary(data.frame(obs = testing$wage,
+                          pred = predict(MARS, newdata = testing)[,1]))
+```
+
+Note that these (and other) "variable importance measures" are based on 
+how much worse the predictive performance is if a predictor were to be
+dropped. In other words, it means "important" in a very particular and
+atypical sense. Also, in this case they are scaled so the more important
+variable is automatically 100 and everything else is relative to that,
+so it is a measure of relative importance rather than absolute importance.
+
+### GAM
+_NOTE:_ GAM can't take factors
+```{r, message = FALSE}
+library(gam)
+GAM_grid <- data.frame(df = 1:10)
+GAM <- train(wage ~ year + age, data = training, method = "gamSpline", 
+             trControl = ctrl, tuneGrid = GAM_grid,
+             preProcess = c("center", "scale"))
+```
+
+```{r}
+plot(GAM$finalModel)
+```
+
+```{r}
+defaultSummary(data.frame(obs = testing$wage, 
+                          pred = predict(GAM, newdata = testing)))
+```
+
+Unfortunately, the `train` interface to this model is a bit limited,
+so you may want to do it directly if you need to include factors
+such as `education`.
+```{r}
+plot(gam(wage ~ s(year, age, df = 6) + education, data = training))
+```
+
+But in that case, you would have to do any cross-validation yourself.
+
+## Trees!
+Tree-based methods are simple and useful for interpretation, but not as predictive 
+as other methods. So, we use methods like bagging, boosting, BART, and RandomForest, 
+which gain predictability but lose intepretability.
+
+### How to Do a Tree
+The gist of a tree is to cut up the data based along logical parameters that minimize the
+sum-of-squared residuals between the outcome and the strata-means, often by a path-like approach (hence a tree).
+
+```{r, message = FALSE}
+library(ISLR)
+library(caret)
+set.seed(12345)
+Hitters <- filter(Hitters, !is.na(Salary))
+in_train <- createDataPartition(Hitters$Salary, p = 3 / 4, list = FALSE)
+training <- Hitters[in_train, ]
+testing <- Hitters[-in_train, ]
+```
+
+```{r}
+ctrl <- trainControl(method = "cv", number = 10)
+out <- train(log(Salary) ~ ., data = training, method = "rpart2",
+             tuneLength = 10, trControl = ctrl)
+plot(out)
+```
+
+```{r}
+plot(out$finalModel)
+text(out$finalModel, pretty = 0)
+y_hat <- predict(out, newdata = testing)
+```
+```{r}
+defaultSummary(data.frame(obs = testing$Salary, 
+                          pred = exp(y_hat)))
+```
+
+This process is virtually guaranteed to overfit in the training data and
+predict poorly in the testing data. So we prune it (kind of like penalization).
+
+### Prune
+```{r}
+new_out <- rpart::prune(out$finalModel, cp = 0.3)
+new_out
+plot(new_out)
+text(new_out, pretty = 0)
+```
+
+### Tree-based Classifications
+Let's look at how trees do classification with factor variables (default dataset is just yes/no with a few vars). I think the Default data is about defaulting on loans or something.
+```{r}
+out <- train(default ~ ., data = Default, method = "rpart2",
+             tuneLength = 10, trControl = ctrl)
+plot(out$finalModel)
+text(out$finalModel, pretty = 0)
+```
+Confusion Matrix?
+```{r}
+set.seed(12345)
+in_train <- createDataPartition(y = Default$default, p = 3 / 4, list = FALSE)
+Default_training <- Default[ in_train, ]
+Default_testing  <- Default[-in_train, ]
+
+out_bag <- train(default ~ ., data = Default_training, method = "rpart2",
+             tuneLength = 10, trControl = ctrl)
+
+confusionMatrix(predict(out_bag, newdata = Default_testing), reference = Default_testing$default)
+```
+
+### Bagging
+Bagging = Bootstrap AGGregatING 
+The point of Bagging is to reduce variance via averaging
+
+Repeat the following $B > 1$ times
+
+1. Draw a sample (with replacement) from the training data that is the
+  same size as the training data
+2. Apply a tree-based algorithm
+
+When happy, average it all (or majority vote for classification).
+
+Bagging Method (Treebag)
+```{r}
+out <- train(log(Salary) ~ ., data = training, method = "treebag")
+out # the training data
+y_hat <- predict(out, newdata = testing)
+defaultSummary(data.frame(obs = testing$Salary, 
+                          pred = exp(y_hat)))
+```
+
+### Boosting
+Boosting is similar to bagging, but doesn't necessarily require bootstrapping. It aggregates, but it does so sequentially. Aka it creates a bunch of trees, checks one, checks the next, then adjusts itself through weights based on the error.
+
+Boosting does not necessarily involve bootstrapping; i.e. there is only one set
+of training data and all of it is used. Instead of calculating the
+difference between the outcome and the strata-means and trying
+to minimize the sum-of-squared residuals, boosting calculates the
+difference between the previous residuals (from earlier stages of
+the tree) and the strata-means.
+
+```{r, eval=FALSE}
+gbm_grid <- expand.grid(.interaction.depth = seq(1, 7, by = 2),
+                        .n.trees = seq(100, 1000, by = 50),
+                        .shrinkage = c(0.01, 0.1),
+                        .n.minobsinnode = 1:10)
+out <- train(log(Salary) ~ ., data = training, method = "gbm",
+             trControl = ctrl, tuneGrid = gbm_grid, 
+             verbose = FALSE)
+y_hat <- predict(out, newdata = testing)
+defaultSummary(data.frame(obs = testing$Salary, 
+                          pred = exp(y_hat)))
+```
+
+
+### Random Forest
+For each bootstrapped sample, only a random subset of the available 
+predictors are considered for a split (mtry). Usually the size of the
+subset is chosen to be on the order of the square root of the number
+of available predictors. This process makes the bagged predictions
+less correlated and hence the ultimate predictions have less variance.
+
+```{r, eval=FALSE}
+rf_grid <- data.frame(.mtry = 2:(ncol(training) - 1L))
+out <- train(log(Salary) ~ ., data = training, method = "rf",
+             trControl = ctrl, tuneGrid = rf_grid, 
+             ntrees = 1000, importance = TRUE)
+varImp(out) # just tells you what variable it thinks is most predictive
+y_hat <- predict(out, newdata = testing)
+defaultSummary(data.frame(obs = testing$Salary, 
+                          pred = exp(y_hat)))
+```
+
+### BART!
+
+BART is the bayesian tree concept.
+
+
+```{r}
+library(BART)
+X_train <- model.matrix(log(Salary) ~ ., data = training)
+X_test <- model.matrix(log(Salary) ~ ., data = testing)
+out <- mc.wbart(X_train, y = log(training$Salary), X_test,
+                mc.cores = parallel::detectCores())
+defaultSummary(data.frame(obs = testing$Salary,
+                          pred = exp(out$yhat.test.mean)))
+```
+
+
+### Homework 4 BART Example
+```{r}
+payback <- readRDS("payback.rds")
+payback$y <- factor(payback$y, levels = 0:1, labels = c("no", "yes"))
+payback$delinq_2yrs <- factor(payback$delinq_2yrs, 
+                              levels = 0:1, labels = c("no", "yes"))
+payback$zip_code <- NULL
+payback$addr_state <- NULL
+```
+
+```{r, include = FALSE}
+payback <- na.omit(payback[sample(1:nrow(payback), size = 20000, replace = FALSE), ])
+payback$home_ownership <- factor(payback$home_ownership)
+```
+
+
+```{r}
+in_train <- createDataPartition(payback$y, p = 3 / 4, list = FALSE)
+training <- payback[ in_train, ]
+testing  <- payback[-in_train, ]
+```
+
+```{r, BART, cache = TRUE, message = FALSE}
+library(BART)
+X_train <- data.matrix(training[ , -ncol(training)])
+X_test <- data.matrix(testing[ , -ncol(testing)])
+bart <- mc.pbart(X_train, training$y == "yes", X_test)
+confusionMatrix(testing$y, 
+                factor(bart$prob.test.mean > 0.5, levels = c(FALSE, TRUE),
+                       labels = levels(testing$y)))
+```
+
+So, both single tree and random forests achieved the highest overall 
+accuracy by predicting everyone in the testing data will pay back
+their loans on schedule.
+
+
+Here's our Boardgame Geek BART (continuous)
+```{r}
+library(BART)
+set.seed(12345)
+X_train <- model.matrix(geek_rating ~ ., data = games_clean_training)
+X_test <- model.matrix(geek_rating ~ ., data = games_clean_testing)
+out <- mc.wbart(X_train, y = games_clean_training$geek_rating, X_test,
+                mc.cores = parallel::detectCores())
+out
+defaultSummary(data.frame(obs = games_clean_testing$geek_rating,
+                          pred = exp(out$yhat.test.mean)))
+```
+
 
