@@ -27,8 +27,6 @@ library(flam)
 + When varImp? Any model?
 + How do we compare RMSE between models? e.g BART and RF seem comparable to each other, but not with OLS/Lassso, which are very small comparatively.
 
-# Pre-Midterm:
-
 # Post-Midterm:
 ## Week 9: Intro to Supervised Learning
 ### Packages
@@ -579,7 +577,7 @@ atypical sense. Also, in this case they are scaled so the more important
 variable is automatically 100 and everything else is relative to that,
 so it is a measure of relative importance rather than absolute importance.
 
-### GAM
+### GAM (Generalized Additive Model)
 _NOTE:_ GAM can't take factors
 ```{r, message = FALSE}
 library(gam)
@@ -804,4 +802,118 @@ defaultSummary(data.frame(obs = games_clean_testing$geek_rating,
                           pred = exp(out$yhat.test.mean)))
 ```
 
+# Pre-Midterm
+
+## GGplot2
+```{r}
+library(ggplot2)
+ggplot(swiss) +
+geom_point(mapping = aes(x = Education, y = Agriculture, color = Catholic)) +
+geom_smooth(mapping = aes(x = Education, y = Agriculture),
+color = "red", se = FALSE)
+```
+
+## Text Mining
+
+### Step 0: Create Dataset
+```{r}
+constitution$country_year <- paste(constitution$country,
+constitution$year,
+sep = "_")
+```
+
+### Step 1: Create Tidy Dataframe
+
+```{r}
+library(tidytext)
+tidy_df <- unnest_tokens(constitution, output = "word", input = "preamble")
+```
+
+### Step 2: Remove Stop Words (Optional)
+```{r}
+library(dplyr)
+tidy_df_nostop <- anti_join(tidy_df, stop_words)
+```
+
+### Step 3: Create DTM of Word Stems
+```{r}
+tidy_counts <- group_by(tidy_df_nostop, country_year, word) %>%
+summarize(count = n()) # create count of word-stems
+
+dtm <- tidy_counts %>% 
+  cast_dtm(country_year, word, count)
+```
+
+## K-Means
+```{r}
+set.seed(12345)
+output <- kmeans(dtm, centers = 5, nstart = 20)
+```
+
+
+## PCA
+### Step 0: Create Dataset
+```{r}
+library(ISLR)
+str(College, max.level = 1)
+```
+
+### Step 1: Recode binary?
+```{r}
+College$Private <- as.integer(College$Private == "Yes")
+```
+
+### Step 2: Do PCA
+Scale standardizes
+```{r}
+pca <- prcomp(College, scale. = TRUE)
+summary(pca)
+```
+
+### Step 3: PCAPP (separate)
+```{r}
+library(pcaPP)
+biplot(PCAproj(College, scale = sd), las = 1, xlim = c(-0.1, 0.15))
+```
+
+### Use SVD to get Singular Value Decomposition
+```{r}
+svd()
+```
+
+# Final Practice
+## Data Mining Approaches for Binary Outcomes
+```{r}
+library(ISLR)
+data("Caravan", package = "ISLR")
+```
+
+### Split into training and testing
+```{r}
+library(dplyr)
+library(caret)
+in_train <- createDataPartition(y = Caravan$Purchase,
+                                p = 3 / 4, list = FALSE)
+str(in_train)
+Caravan_training <- Caravan[ in_train, ]
+Caravan_testing  <- Caravan[-in_train, ]
+```
+
+### Randomforest (binary assignment)
+```{r, cache=TRUE}
+library(caret)
+library(e1071)
+ctrl <- trainControl(method = "cv", number = 10)
+
+rf_grid <- data.frame(.mtry = 2:(ncol(Caravan_training) - 1L))
+out <- train(Purchase ~ ., data = Caravan_training, method = "rf",
+             trControl = ctrl, tuneGrid = rf_grid, 
+             ntrees = 1, importance = TRUE)
+confusionMatrix(predict(out, newdata = Caravan_testing), reference = Caravan_testing$Purchase)
+```
+
+### Neural Network
+```{r}
+
+```
 
