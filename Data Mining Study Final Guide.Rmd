@@ -885,6 +885,7 @@ svd()
 ## Data Mining Approaches for Binary Outcomes
 ```{r}
 library(ISLR)
+#library(parallel)
 data("Caravan", package = "ISLR")
 ```
 
@@ -903,17 +904,42 @@ Caravan_testing  <- Caravan[-in_train, ]
 ```{r, cache=TRUE}
 library(caret)
 library(e1071)
+
 ctrl <- trainControl(method = "cv", number = 10)
 
 rf_grid <- data.frame(.mtry = 2:(ncol(Caravan_training) - 1L))
+
+# out <- train(Purchase ~ ., data = Caravan_training, method = "rf",
+#              trControl = ctrl, tuneGrid = rf_grid, 
+#              ntrees = 1, importance = TRUE, mc.cores = parallel::detectCores())
+
 out <- train(Purchase ~ ., data = Caravan_training, method = "rf",
              trControl = ctrl, tuneGrid = rf_grid, 
              ntrees = 1, importance = TRUE)
+
 confusionMatrix(predict(out, newdata = Caravan_testing), reference = Caravan_testing$Purchase)
 ```
 
 ### Neural Network
-```{r}
+```{r, cache=TRUE}
+library(caret)
 
+nnetGrid <- expand.grid(.decay = c(0, 0.01, .1),
+                        .size = c(1:10))
+
+ctrl <- trainControl(method = "cv", number = 10)
+
+# nn <- train(Purchase ~ ., data = Caravan_training, method = "nnet",
+#             trControl = ctrl, tuneGrid = nnetGrid,
+#             preProcess = c("center", "scale"), trace = FALSE, mc.cores = parallel::detectCores())
+
+nn <- train(Purchase ~ ., data = Caravan_training, method = "nnet",
+            trControl = ctrl, tuneGrid = nnetGrid,
+            preProcess = c("center", "scale"), trace = FALSE)
+
+defaultSummary(data.frame(obs = Caravan_testing$Purchase,
+                          pred = predict(nn, newdata = Caravan_testing)))
+
+confusionMatrix(predict(nn, newdata = Caravan_testing), reference = Caravan_testing$Purchase)
 ```
 
