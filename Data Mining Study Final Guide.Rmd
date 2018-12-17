@@ -20,6 +20,12 @@ library(earth)
 library(BART)
 library(doMC)
 library(flam)
+library(e1071)
+library(randomForest)
+library(rpart)
+library(rpart.plot)
+library(doMC)
+registerDoMC(parallel::detectCores())
 ```
 
 # To Do:
@@ -132,11 +138,6 @@ ctrl <- trainControl(method = "cv", number = 10)
 set.seed(12345)
 MODEL_cv <- train(INSERT_OUTCOME_VAR_HERE ~ ., data = training, method = "MODEL_METHOD", trControl = ctrl) # e.g. ols_cv has method "lm"
 MODEL_cv
-# 
-#
-#
-#
-# random forest method = "rf"
 ```
 ### Training Controls
 ```{r}
@@ -213,6 +214,8 @@ Lasso = L1 norm (not euclidian distance), basically taxicab geometry (can't go s
 
 In both cases we're trying to minimize SSR + $\lambda$ * the sum of absolute coefficients raised to a positive power (1 in lasso, 2 in ridge)
 
+_Takeaway:_ Lasso is L1, so it has sharp points, so the optimal points usually occur on an axis where many coefficients are 0, whereas Ridge is circular so optima are almost completely unlikely to occur on 0.
+
 Lasso Example
 ```{r}
 set.seed(12345)
@@ -223,6 +226,35 @@ head(enetGrid)
 lasso <- train(OUTPUT_VAR ~ ., data = DATA_FRAME_training, method = "enet", 
                trControl = ctrl, tuneGrid = enetGrid)
 lasso$bestTune
+```
+
+_Darrel Long's Breakdown of Differences in Lasso/Ridge/Elastic Net_
+```{r}
+ridge <- train(y ~ ., 
+               data = training, 
+               method = "glmnet", 
+               trControl = trainControl(method = "cv", number = 10), 
+               preProcess = c("center", "scale"),
+               tuneGrid = expand.grid(.alpha = 0,
+                                      .lambda = seq(.05, 1, length = 10)))
+
+lasso <- train(y ~ ., 
+               data = training, 
+               method = "glmnet", 
+               trControl = trainControl(method = "cv", number = 10), 
+               preProcess = c("center", "scale"),
+               tuneGrid = expand.grid(.alpha = 1,
+                                      .lambda = seq(.05, 1, length = 10)))
+
+elastic_net <- train(y ~ .,
+                     data = training, 
+                     method = "glmnet", 
+                     trControl = trainControl(method = "cv", number = 10), 
+                     preProcess = c("center", "scale"),
+                     tuneLength = 10)
+
+# to figure out the chosen values of alpha and lambda
+elastic_net$bestTune
 ```
 
 
@@ -646,10 +678,13 @@ predict poorly in the testing data. So we prune it (kind of like penalization).
 
 ### Prune
 ```{r}
+library(rpart.plot)
 new_out <- rpart::prune(out$finalModel, cp = 0.3)
 new_out
-plot(new_out)
-text(new_out, pretty = 0)
+
+rpart.plot(new_out)
+# plot(new_out)
+# text(new_out, pretty = 0)
 ```
 
 ### Tree-based Classifications
@@ -657,8 +692,8 @@ Let's look at how trees do classification with factor variables (default dataset
 ```{r}
 out <- train(default ~ ., data = Default, method = "rpart2",
              tuneLength = 10, trControl = ctrl)
-plot(out$finalModel)
-text(out$finalModel, pretty = 0)
+rpart.plot(out$finalModel)
+#text(out$finalModel, pretty = 0)
 ```
 Confusion Matrix?
 ```{r}
@@ -687,11 +722,11 @@ When happy, average it all (or majority vote for classification).
 
 Bagging Method (Treebag)
 ```{r}
-out <- train(log(Salary) ~ ., data = training, method = "treebag")
-out # the training data
-y_hat <- predict(out, newdata = testing)
+out_bag <- train(log(Salary) ~ ., data = training, method = "treebag")
+out_bag # the training data
+y_hat_bag <- predict(out_bag, newdata = testing)
 defaultSummary(data.frame(obs = testing$Salary, 
-                          pred = exp(y_hat)))
+                          pred = exp(y_hat_bag)))
 ```
 
 ### Boosting
@@ -704,17 +739,17 @@ to minimize the sum-of-squared residuals, boosting calculates the
 difference between the previous residuals (from earlier stages of
 the tree) and the strata-means.
 
-```{r, eval=FALSE}
+```{r, eval=FALSE, cache = TRUE}
 gbm_grid <- expand.grid(.interaction.depth = seq(1, 7, by = 2),
                         .n.trees = seq(100, 1000, by = 50),
                         .shrinkage = c(0.01, 0.1),
                         .n.minobsinnode = 1:10)
-out <- train(log(Salary) ~ ., data = training, method = "gbm",
+out_boost <- train(log(Salary) ~ ., data = training, method = "gbm",
              trControl = ctrl, tuneGrid = gbm_grid, 
              verbose = FALSE)
-y_hat <- predict(out, newdata = testing)
+y_hat_boost <- predict(out_boost, newdata = testing)
 defaultSummary(data.frame(obs = testing$Salary, 
-                          pred = exp(y_hat)))
+                          pred = exp(y_hat_boost)))
 ```
 
 
@@ -804,7 +839,7 @@ defaultSummary(data.frame(obs = games_clean_testing$geek_rating,
 
 # Pre-Midterm
 
-## GGplot2
+## GGplot2 Example
 ```{r}
 library(ggplot2)
 ggplot(swiss) +
@@ -813,7 +848,7 @@ geom_smooth(mapping = aes(x = Education, y = Agriculture),
 color = "red", se = FALSE)
 ```
 
-## Text Mining
+## Text Mining Example
 
 ### Step 0: Create Dataset
 ```{r}
@@ -877,7 +912,7 @@ biplot(PCAproj(College, scale = sd), las = 1, xlim = c(-0.1, 0.15))
 ```
 
 ### Use SVD to get Singular Value Decomposition
-```{r}
+```{r, error=TRUE}
 svd()
 ```
 
@@ -885,19 +920,27 @@ svd()
 ## Data Mining Approaches for Binary Outcomes
 ```{r}
 library(ISLR)
+library(doMC)
+registerDoMC(parallel::detectCores())
 #library(parallel)
 data("Caravan", package = "ISLR")
+summary(Caravan$Purchase)
+```
+### Create Head for testing
+```{r}
+Caravan_head <- head(Caravan, n = 500)
 ```
 
 ### Split into training and testing
 ```{r}
 library(dplyr)
 library(caret)
-in_train <- createDataPartition(y = Caravan$Purchase,
+set.seed(12345)
+in_train <- createDataPartition(y = Caravan_head$Purchase,
                                 p = 3 / 4, list = FALSE)
 str(in_train)
-Caravan_training <- Caravan[ in_train, ]
-Caravan_testing  <- Caravan[-in_train, ]
+Caravan_training <- Caravan_head[ in_train, ]
+Caravan_testing  <- Caravan_head[-in_train, ]
 ```
 
 ### Randomforest (binary assignment)
@@ -905,19 +948,20 @@ Caravan_testing  <- Caravan[-in_train, ]
 library(caret)
 library(e1071)
 
-ctrl <- trainControl(method = "cv", number = 10)
+ctrl <- trainControl(method = "cv", number = 3)
 
-rf_grid <- data.frame(.mtry = 2:(ncol(Caravan_training) - 1L))
+rf_grid <- data.frame(.mtry = 2L:(ncol(Caravan_training) - 1L)) # need it to run
 
+# multi core inside
 # out <- train(Purchase ~ ., data = Caravan_training, method = "rf",
 #              trControl = ctrl, tuneGrid = rf_grid, 
 #              ntrees = 1, importance = TRUE, mc.cores = parallel::detectCores())
 
-out <- train(Purchase ~ ., data = Caravan_training, method = "rf",
+out_rf <- train(Purchase ~ ., data = Caravan_training, method = "rf",
              trControl = ctrl, tuneGrid = rf_grid, 
-             ntrees = 1, importance = TRUE)
+             ntrees = 10, importance = TRUE)
 
-confusionMatrix(predict(out, newdata = Caravan_testing), reference = Caravan_testing$Purchase)
+confusionMatrix(predict(out_rf, newdata = Caravan_testing, reference = Caravan_testing$Purchase))
 ```
 
 ### Neural Network
@@ -927,19 +971,20 @@ library(caret)
 nnetGrid <- expand.grid(.decay = c(0, 0.01, .1),
                         .size = c(1:10))
 
-ctrl <- trainControl(method = "cv", number = 10)
+ctrl <- trainControl(method = "cv", number = 3)
 
+# multi core inside
 # nn <- train(Purchase ~ ., data = Caravan_training, method = "nnet",
 #             trControl = ctrl, tuneGrid = nnetGrid,
 #             preProcess = c("center", "scale"), trace = FALSE, mc.cores = parallel::detectCores())
 
-nn <- train(Purchase ~ ., data = Caravan_training, method = "nnet",
+out_nn <- train(Purchase ~ ., data = Caravan_training, method = "nnet",
             trControl = ctrl, tuneGrid = nnetGrid,
             preProcess = c("center", "scale"), trace = FALSE)
 
 defaultSummary(data.frame(obs = Caravan_testing$Purchase,
-                          pred = predict(nn, newdata = Caravan_testing)))
+                          pred = predict(out_nn, newdata = Caravan_testing)))
 
-confusionMatrix(predict(nn, newdata = Caravan_testing), reference = Caravan_testing$Purchase)
+confusionMatrix(predict(out_nn, newdata = Caravan_testing, reference = Caravan_testing$Purchase))
 ```
 
