@@ -4,8 +4,8 @@ author: "Michael Weisner"
 date: "12/13/2018"
 output: html_document
 ---
-```{r setup, include=FALSE, error=TRUE}
-knitr::opts_chunk$set(echo = TRUE)
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, error = TRUE)
 ```
 
 # Package List
@@ -55,12 +55,16 @@ round(coef(ols), digits = 2)
 Step 0: Load the whole dataset
 ```{r}
 library(dplyr)
-DATA_FRAME <- as.data.frame(BostonHousing, package = "mlbench")
+library(mlbench)
+library(tidyverse)
+data("BostonHousing")
+DATA_FRAME <- as.tibble(BostonHousing)
 DATA_FRAME <- rename(DATA_FRAME, OUTPUT_VAR = medv)
 ```
 
 Step 1: Split into training and testing
 ```{r, message = FALSE}
+library(caret)
 in_train <- createDataPartition(y = DATA_FRAME$OUTPUT_VAR,
                                 p = 3 / 4, list = FALSE)
 str(in_train)
@@ -494,7 +498,7 @@ predictors(NSC) # retained predictors
 
 ## Adjusting Variables to Work Better in Linear Models (Poly, Cut, Knots, Splines, etc)
 ### Packages
-```{r, results=hide}
+```{r}
 library(gam)
 library(earth)
 ```
